@@ -1,0 +1,158 @@
+import { useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { CheckCircle2 } from "lucide-react";
+
+interface Organization {
+  id: string;
+  name: string;
+  agreement_text: string;
+  agreement_version: number;
+}
+
+export default function AgreementConsentDialog() {
+  const [open, setOpen] = useState(false);
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [agreed, setAgreed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    checkForUpdatedAgreement();
+  }, []);
+
+  const checkForUpdatedAgreement = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Check if user is an employee
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .single();
+
+      if (roleData?.role !== "employee") return;
+
+      // Get user's organization memberships
+      const { data: memberships, error: memberError } = await supabase
+        .from("organization_members")
+        .select("organization_id, agreement_version_accepted")
+        .eq("user_id", user.id);
+
+      if (memberError || !memberships || memberships.length === 0) return;
+
+      // Check if any organization has updated agreement
+      for (const membership of memberships) {
+        const { data: org, error: orgError } = await supabase
+          .from("organizations")
+          .select("id, name, agreement_text, agreement_version")
+          .eq("id", membership.organization_id)
+          .single();
+
+        if (orgError || !org || !org.agreement_text) continue;
+
+        // If organization has updated agreement and user hasn't accepted latest version
+        if (org.agreement_version > (membership.agreement_version_accepted || 0)) {
+          setOrganization(org);
+          setOpen(true);
+          break;
+        }
+      }
+    } catch (error: any) {
+      console.error("Error checking for updated agreements:", error);
+    }
+  };
+
+  const handleAccept = async () => {
+    if (!organization) return;
+
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Update member's agreement acceptance
+      const { error } = await supabase
+        .from("organization_members")
+        .update({
+          agreement_accepted_at: new Date().toISOString(),
+          agreement_version_accepted: organization.agreement_version,
+        })
+        .eq("user_id", user.id)
+        .eq("organization_id", organization.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Agreement accepted successfully",
+      });
+
+      setOpen(false);
+      // Check if there are more updated agreements
+      setTimeout(checkForUpdatedAgreement, 500);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!organization) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Updated Agreement for {organization.name}</DialogTitle>
+          <DialogDescription>
+            The organization has updated its agreement. Please review and accept the new terms to continue.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <h4 className="font-semibold">Updated Organization Agreement</h4>
+            <ScrollArea className="h-[350px] w-full rounded-md border p-4">
+              <p className="text-sm whitespace-pre-wrap">{organization.agreement_text}</p>
+            </ScrollArea>
+          </div>
+
+          <div className="flex items-start space-x-2">
+            <Checkbox
+              id="agree-updated"
+              checked={agreed}
+              onCheckedChange={(checked) => setAgreed(checked as boolean)}
+            />
+            <label
+              htmlFor="agree-updated"
+              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+            >
+              I have read and agree to the updated terms and conditions
+            </label>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button 
+            onClick={handleAccept}
+            disabled={loading || !agreed}
+          >
+            <CheckCircle2 className="w-4 h-4 mr-2" />
+            {loading ? "Accepting..." : "Accept Agreement"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
