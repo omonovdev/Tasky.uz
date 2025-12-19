@@ -34,6 +34,29 @@
     "recentTasksDescription": "Tasks you recently assigned to employees",
     "assignedTo": "Assigned to"
   },
+  "dashboardExtended": {
+    "greetings": {
+      "morning": "Good Morning",
+      "afternoon": "Good Afternoon",
+      "evening": "Good Evening"
+    },
+    "welcomeSubtitle": "Let's make today productive",
+    "heroSubtitle": "Here's your organization task overview",
+    "tasksCount": "{{count}} tasks",
+    "noActivityTitle": "No recent activity yet",
+    "noActivityCta": "Create your first task to get started!",
+    "viewOrgStats": "View Organization Stats",
+    "loadingWorkspace": "Loading your workspace...",
+    "noOrgTitle": "Welcome to Tasky",
+    "noOrgSubtitle": "Get started by creating or joining an organization",
+    "quickActions": {
+      "createTask": "Create New Task",
+      "myTasks": "My Tasks",
+      "viewCalendar": "View Calendar",
+      "checkNotifications": "Check Notifications",
+      "viewAnalytics": "View Analytics"
+    }
+  },
   "notifications": {
     "title": "Notifications",
     "markAsRead": "Mark as Read",
@@ -43,15 +66,132 @@
     "filterRead": "Read",
     "noNotifications": "No notifications yet"
   },
+  "notificationsPage": {
+    "title": "Notifications",
+    "subtitle": "Stay updated with your latest activities and invitations",
+    "all": "All Notifications",
+    "unread": "Unread",
+    "markAllRead": "Mark All Read",
+    "viewTaskDetails": "View Task Details",
+    "newTask": "New Task Assignment",
+    "allCaughtUp": "All caught up!",
+    "noUnread": "No unread notifications",
+    "none": "No notifications to display",
+    "loading": "Loading notifications...",
+    "invitationTitle": "Invitation to Join",
+    "position": "Position",
+    "time": "Time",
+    "personalMessage": "Personal Message",
+    "newBadge": "New",
+    "accept": "Accept Invitation",
+    "accepted": "Accepted",
+    "decline": "Decline",
+    "declined": "Declined",
+    "processing": "Processing...",
+    "taskAssigned": "New task assigned: {{title}}"
+  },
   "calendar": {
     "title": "Calendar",
     "month": "Month",
     "week": "Week",
     "day": "Day"
   },
+  "calendarPage": {
+    "title": "Calendar",
+    "subtitle": "View all your tasks by due date",
+    "month": "Month",
+    "week": "Week",
+    "day": "Day",
+    "filterAssigned": "Tasks Assigned",
+    "filterCompleted": "Completed",
+    "filterInProgress": "In Progress",
+    "filterUrgent": "Urgent",
+    "taskCalendar": "Task Calendar",
+    "legendAssigned": "Tasks assigned",
+    "legendCompleted": "All completed",
+    "legendMissed": "Deadline missed",
+    "tasksOnDate": "Tasks on {{date}}",
+    "selectDate": "Select a date",
+    "emptyTitle": "No tasks on this date",
+    "emptySubtitle": "Select another date to view tasks",
+    "inProgress": "In Progress",
+    "completed": "Completed",
+    "completedLabel": "Completed",
+    "deadline": "Deadline",
+    "estimated": "Estimated:",
+    "view": "View",
+    "setTime": "Set Time",
+    "cannotComplete": "Cannot Complete:"
+  },
   "leaderboard": {
     "title": "Leaderboard",
     "credits": "Credits"
+  },
+  "leaderboardPage": {
+    "title": "Leaderboard",
+    "subtitle": "Top performers based on completed tasks",
+    "fullRankings": "Full Rankings",
+    "loading": "Loading...",
+    "noData": "No data available",
+    "staff": "Staff",
+    "tasksLabel": "{{count}} tasks"
+  },
+  "teamPage": {
+      "leaderboardTitle": "Team Leaderboard",
+    "leaderboard": {
+      "empty": "No team members yet"
+    },
+    "topPerformers": "Top Performers",
+    "title": "Team",
+    "subtitle": "Collaboration, leaderboard, and team communication",
+    "members": "Members",
+    "tabs": {
+      "leaderboard": "Leaderboard",
+      "chat": "Chat",
+      "ideas": "Ideas"
+    },
+    "memberRole": "Team Member",
+    "topBadge": "Top {{rank}}",
+    "chat": {
+      "placeholder": "Type your message...",
+      "empty": "No messages yet. Start the conversation!",
+      "send": "Send",
+      "typing": "Someone is typing...",
+      "replyingTo": "Replying to:",
+      "sectionTitle": "Team Chat",
+      "membersOnline": "{{count}} members online"
+    },
+    "ideas": {
+      "title": "Team Ideas & Suggestions",
+      "shareYourIdea": "Share Your Idea",
+      "placeholderTitle": "What's your idea?",
+      "placeholderDescription": "Describe your idea in detail...",
+      "post": "Post Idea",
+      "emptyTitle": "No ideas yet",
+      "emptySubtitle": "Be the first to share your brilliant idea!",
+      "byAuthor": "by {{first}} {{last}}",
+      "labelTitle": "Title",
+      "labelDescription": "Description",
+      "discuss": "Discuss in chat",
+      "discussPrefix": "Discussing idea: {{title}}"
+    },
+    "editMessage": "Edit Message",
+      "editIdea": "Edit Idea",
+      "loading": "Loading team..."
+    },
+  "team": {
+    "leaderboard": "Team Leaderboard",
+    "chat": "Team Chat",
+    "shareIdea": "Share Idea",
+    "typeMessage": "Type your message...",
+    "send": "Send",
+    "typeReply": "Type your reply...",
+    "quickStats": "Quick Stats",
+    "ideaTitle": "Idea Title",
+    "ideaTitlePlaceholder": "Enter your idea title...",
+    "ideaDescription": "Idea Description",
+    "ideaDescriptionPlaceholder": "Describe your idea in detail...",
+    "submitIdea": "Submit Idea"
   },
   "profile": {
     "title": "Account",
@@ -71,6 +211,12 @@
     "saving": "Saving...",
     "preferences": "Preferences",
     "language": "Language",
+    "languageSubtitle": "Choose your preferred language",
+    "languages": {
+      "en": "English",
+      "ru": "Russian",
+      "uz": "Uzbek"
+    },
     "themeMode": "Theme Mode",
     "lightMode": "Light",
     "darkMode": "Dark",
@@ -78,6 +224,7 @@
     "security": "Security",
     "settings": "Settings",
     "changePassword": "Change Password",
+    "passwordSubtitle": "Update your account password",
     "currentPassword": "Current Password",
     "newPassword": "New Password",
     "confirmPassword": "Confirm Password",
@@ -97,6 +244,14 @@
       "employee": "Employee"
     }
   },
+  "profileStats": {
+    "totalReceived": "Total Received",
+    "completed": "Completed",
+    "inProgress": "In Progress",
+    "hoursSpent": "Hours Spent",
+    "taskDistribution": "Task Distribution",
+    "noTasks": "No tasks received yet"
+  },
   "help": {
     "title": "Help & Support",
     "faq": "Frequently Asked Questions",
@@ -105,6 +260,18 @@
     "phone": "Phone",
     "message": "Message",
     "send": "Send Message"
+  },
+  "homePage": {
+    "myOrganizations": "My Organizations",
+    "myTasks": "My Tasks",
+    "dashboard": "Dashboard",
+    "tasksICreated": "Tasks I Created",
+    "urgentTasks": "Urgent Tasks",
+    "noUrgent": "No urgent tasks at the moment",
+    "today": "Today",
+    "tomorrow": "Tomorrow",
+    "overdue": "Overdue",
+    "daysLeft": "{{count}} days"
   },
   "organization": {
     "members": "Members",
@@ -139,6 +306,22 @@
     "searchError": "Failed to search employees",
     "uploadError": "Failed to upload photo"
   },
+  "organizationDetail": {
+    "performanceTitle": "Organization Performance",
+    "performanceSubtitle": "Track task progress and team productivity",
+    "completion": "Completion",
+    "done": "Done",
+    "cards": {
+      "total": "Total Tasks",
+      "totalSubtitle": "All organization tasks",
+      "completed": "Completed",
+      "completedSubtitle": "{{rate}}% success rate",
+      "inProgress": "In Progress",
+      "inProgressSubtitle": "Active tasks",
+      "urgent": "Urgent",
+      "urgentSubtitle": "Due within 72h"
+    }
+  },
   "tasks": {
     "title": "Tasks",
     "myTasks": "My Tasks",
@@ -152,7 +335,316 @@
     "complete": "Complete",
     "manageStages": "Manage Stages"
   },
-  "common": {
+  "tasksPage": {
+    "loading": "Loading tasks...",
+    "statusUpdated": "Task status updated",
+    "goal": "Goal",
+    "assignedByOn": "Assigned by {{name}} on {{date}}",
+    "editedByOn": "Edited by {{name}} on {{date}}",
+    "unknown": "Unknown",
+    "timeRemaining": "Time Remaining",
+    "stages": "Stages",
+    "start": "Start",
+    "complete": "Complete",
+    "totalCount": "{{count}} total",
+    "toBeCompleted": "To Be Completed",
+    "completed": "Completed",
+    "urgentTitle": "Urgent Tasks ({{count}})",
+    "urgentSubtitle": "Tasks with less than 3 days remaining",
+    "emptyAll": "No tasks assigned yet",
+    "emptyUrgent": "No urgent tasks",
+    "minutesLeft": "{{count}} minute(s) left",
+    "hoursLeft": "{{count}} hour(s) left",
+    "daysLeft": "{{count}} day(s) left",
+    "overdueHours": "Overdue by {{count}} hour(s)",
+    "overdueDays": "Overdue by {{count}} day(s)"
+  },
+  "tasksPageSection": {
+    "title": "Your Tasks",
+    "subtitle": "Track and manage your work efficiently",
+    "toBeCompleted": "To Be Completed",
+    "completedTasks": "Completed Tasks",
+    "emptyTitle": "No tasks found",
+    "emptyCompleted": "No completed tasks yet. Keep working!",
+    "emptyInProgress": "No tasks in progress. Great job staying on top of things!",
+    "emptyDefault": "Create your first task to get started",
+    "activeTasks": "Active Tasks",
+    "countTasks": "{{count}} tasks",
+    "taskProgress": "Task Progress",
+    "cannotComplete": "Cannot Complete",
+    "actions": {
+      "viewReports": "View Reports",
+      "edit": "Edit",
+      "delete": "Delete",
+      "setEstimate": "Set Estimated Time",
+      "cannotComplete": "Cannot Complete"
+    },
+    "completedHeader": "Completed Tasks",
+    "completedCount": "{{count}} completed",
+    "deleteError": "Failed to delete task",
+    "deleteSuccess": "Task deleted successfully",
+    "time": {
+      "overdueDays": "Overdue by {{count}} day(s)",
+      "overdueHours": "Overdue by {{count}} hour(s)",
+      "minutesLeft": "{{count}} minute(s) left",
+      "hoursLeft": "{{count}} hour(s) left",
+      "daysLeft": "{{count}} day(s) left"
+    }
+  },
+  "taskDetail": {
+    "loading": "Loading task details...",
+    "loadError": "Failed to load task details",
+    "startSuccess": "Task started successfully. Timer is running!",
+    "startError": "Failed to start task",
+    "completeSuccess": "Task completed successfully",
+    "back": "Back to Tasks",
+    "goalTitle": "Task Goal",
+    "timeLeft": "Time Left",
+    "assignedBy": "Assigned By",
+    "estimated": "Estimated",
+    "workDuration": "Work duration",
+    "countdownHint": "Start the task to begin countdown",
+    "countdownDone": "Time's up",
+    "countdownLong": "{{hours}}h {{minutes}}m {{seconds}}s left",
+    "countdownMedium": "{{minutes}}m {{seconds}}s left",
+    "countdownShort": "{{seconds}}s left",
+    "status": {
+      "completed": "Completed",
+      "inProgress": "In Progress",
+      "pending": "Pending",
+      "overdue": "Overdue"
+    },
+    "timeRemaining": {
+      "overdue": "Overdue",
+      "today": "Today",
+      "oneDay": "1 day left",
+      "daysLeft": "{{count}} days left"
+    },
+    "progressTitle": "Overall Progress",
+    "progressHint": "Based on completed stages",
+    "declineReason": "Cannot Complete - Reason:",
+    "buttons": {
+      "manageStages": "Manage Stages",
+      "setEstimate": "Set Estimated Time",
+      "startTask": "Start Task",
+      "cannotComplete": "Cannot Complete",
+      "markComplete": "Mark Complete"
+    }
+  },
+  "taskStatusDetails": {
+    "loading": "Loading tasks...",
+    "loadError": "Failed to load tasks",
+    "deleteError": "Failed to delete task",
+    "deleteSuccess": "Task deleted successfully",
+    "viewingCount": "Viewing {{count}} tasks",
+    "total": "Total: {{count}}",
+    "emptyTitle": "No tasks found",
+    "emptySubtitle": "There are no {{status}} tasks at the moment.",
+    "statusGeneric": "any",
+    "backToDashboard": "Back to Dashboard",
+    "monthCount": "{{count}} task",
+    "monthCount_plural": "{{count}} tasks",
+    "byLabel": "By: {{name}}",
+    "editedByOn": "Edited by: {{name}} on {{date}}",
+    "cannotComplete": "Cannot Complete",
+    "taskCompletion": "Task Completion",
+    "timeRemainingLabel": "Time Remaining",
+    "time": {
+      "overdueDays": "Overdue by {{count}} day(s)",
+      "overdueHours": "Overdue by {{count}} hour(s)",
+      "minutesLeft": "{{count}} minute(s) left",
+      "hoursLeft": "{{count}} hour(s) left",
+      "daysLeft": "{{count}} day(s) left"
+    },
+    "headers": {
+      "completed": "Completed Tasks",
+      "inProgress": "In Progress Tasks",
+      "urgent": "Urgent Tasks",
+      "all": "All Tasks"
+    },
+    "statusBadge": {
+      "pending": "Pending",
+      "inProgress": "Progress",
+      "completed": "Completed"
+    },
+    "actions": {
+      "viewReports": "View Reports",
+      "edit": "Edit",
+      "delete": "Delete"
+    },
+    "deleteTitle": "Delete Task",
+    "deleteDesc": "Are you sure you want to delete this task? This action cannot be undone."
+  },
+  "auth": {
+    "registerTitle": "Create an account",
+    "loginTitle": "Welcome back",
+    "registerSubtitle": "Sign up to start managing tasks and projects",
+    "loginSubtitle": "Sign in to continue to your dashboard",
+    "firstName": "First Name",
+    "lastName": "Last Name",
+    "dateOfBirth": "Date of Birth",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "firstNamePlaceholder": "John",
+    "lastNamePlaceholder": "Doe",
+    "emailPlaceholder": "you@example.com",
+    "passwordPlaceholder": "********",
+    "confirmPasswordPlaceholder": "********",
+    "passwordHint": "At least 6 characters",
+    "createAccount": "Create Account",
+    "signIn": "Sign In",
+    "creatingAccount": "Creating account...",
+    "signingIn": "Signing in...",
+    "forgotPassword": "Forgot password?",
+    "toggleToLogin": "Already have an account? Sign in",
+    "toggleToRegister": "Don't have an account? Register",
+    "validationTitle": "Validation Error",
+    "validationDesc": "Please fix the errors in the form",
+    "registerSuccessVerifyTitle": "Registration successful",
+    "registerSuccessVerifyDesc": "Check your email to verify your account before logging in.",
+    "registerWelcomeTitle": "Welcome to Tasky",
+    "registerWelcomeDesc": "Your account has been created successfully.",
+    "registerFailedTitle": "Registration Failed",
+    "loginSuccessTitle": "Welcome back",
+    "loginSuccessDesc": "You've successfully logged in.",
+    "loginFailedTitle": "Login Failed",
+    "googleFailedTitle": "Google Sign-In Failed",
+    "googleFailedDesc": "Unable to sign in with Google",
+    "errors": {
+      "emailRequired": "Email is required",
+      "emailInvalid": "Invalid email format",
+      "passwordRequired": "Password is required",
+      "passwordShort": "Password must be at least 6 characters",
+      "passwordLong": "Password must be less than 72 characters",
+      "firstNameRequired": "First name is required",
+      "lastNameRequired": "Last name is required",
+      "dobRequired": "Date of birth is required",
+      "dobTooYoung": "You must be at least 13 years old",
+      "dobTooOld": "Please enter a valid date of birth",
+      "confirmRequired": "Please confirm your password",
+      "passwordsMismatch": "Passwords don't match",
+      "userExists": "An account with this email already exists. Please try logging in.",
+      "passwordShortGeneric": "Password must be at least 6 characters long.",
+      "sessionFailed": "Failed to create session",
+      "invalidCredentials": "Invalid email or password. Please check and try again.",
+      "emailNotVerifiedTitle": "Email Not Verified",
+      "emailNotVerifiedDesc": "Check your email and click the verification link before logging in.",
+      "userNotFound": "No account found with this email. Please register first.",
+      "tooManyRequests": "Too many login attempts. Please wait a few minutes and try again."
+    }
+  },
+  "taskDeclineDialog": {
+    "title": "Cannot Complete Task",
+    "label": "Reason for not completing *",
+    "placeholder": "Please explain why you cannot complete this task...",
+    "submit": "Submit Reason",
+    "submitting": "Submitting...",
+    "successTitle": "Success",
+    "successDesc": "Reason submitted successfully",
+    "errorTitle": "Error",
+    "errorDescRequired": "Please provide a reason",
+    "errorDescFail": "Failed to submit reason"
+  },
+  "taskCompletionReport": {
+    "title": "Completion Report",
+    "detailsLabel": "Report Details",
+    "placeholder": "Describe what you've completed and any relevant details...",
+    "attachments": "Attachments",
+    "chooseFiles": "Choose Files",
+    "filesSelected": "{{count}} file(s) selected",
+    "validationTitle": "Validation Error",
+    "validationDesc": "Please enter a report",
+    "successTitle": "Success",
+    "successDesc": "Report submitted successfully",
+    "errorTitle": "Error",
+    "errorDesc": "Failed to submit report",
+    "submitting": "Submitting...",
+    "submit": "Submit Report",
+    "unauthenticated": "User not authenticated"
+  },
+  "helpPage": {
+    "title": "Help & Support",
+    "subtitle": "Find answers or contact our support team",
+    "toastTitle": "Message Sent",
+    "toastDesc": "We'll get back to you as soon as possible.",
+    "faqTitle": "Frequently Asked Questions",
+    "faq": {
+      "createTask": {
+        "q": "How do I create a new task?",
+        "a": "Go to your dashboard or tasks page and click \"Create Task\". Fill in the details and assign it to an employee or subgroup."
+      },
+      "updateProfile": {
+        "q": "How do I update my profile picture?",
+        "a": "Open the Account page, click your picture, choose \"Edit\" and upload a new image. You can crop or resize it."
+      },
+      "taskStages": {
+        "q": "What are task stages?",
+        "a": "Stages let you break a task into steps. Create, edit, and reorder them; mark each as pending or completed."
+      },
+      "leaderboard": {
+        "q": "How does the leaderboard work?",
+        "a": "Leaderboard ranks users by completed tasks. Credits are earned per completed task, and top performers are highlighted."
+      },
+      "deleteTask": {
+        "q": "Can I delete or archive tasks?",
+        "a": "Yes. Open task details and use delete. Be careful: this action cannot be undone."
+      },
+      "changePassword": {
+        "q": "How do I change my password?",
+        "a": "Open Account page and click \"Change Password\". Enter your current password, then choose a new one."
+      }
+    },
+    "contactTitle": "Contact Support",
+    "contactEmail": "Email",
+    "contactPhone": "Phone",
+    "form": {
+      "subject": "Subject",
+      "subjectPlaceholder": "What do you need help with?",
+      "message": "Message",
+      "messagePlaceholder": "Describe your issue or question in detail...",
+      "send": "Send Message"
+    }
+  },
+  "goalsPage": {
+      "title": "Goals",
+      "subtitle": "Set and track your weekly, monthly, and yearly goals",
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+    "yearly": "Yearly",
+    "weeklyGoals": "Weekly Goals",
+    "monthlyGoals": "Monthly Goals",
+    "yearlyGoals": "Yearly Goals",
+    "noWeekly": "No weekly goals yet",
+    "noMonthly": "No monthly goals yet",
+    "noYearly": "No yearly goals yet",
+    "startGoals": "Start setting goals to track your progress",
+    "addGoal": "Add Goal",
+    "loading": "Loading goals...",
+    "daysLeft": "{{count}} days left",
+    "dueToday": "Due today!",
+    "overdue": "Overdue",
+    "goalTitle": "Goal Title",
+    "description": "Description",
+    "deadlineOptional": "Deadline (Optional)",
+    "titlePlaceholder": "Enter your goal...",
+      "descriptionPlaceholder": "Add details about your goal...",
+      "editGoal": "Edit Goal",
+      "saveChanges": "Save Changes",
+      "cancel": "Cancel",
+      "addNewGoal": "Add New {{type}} Goal",
+      "missingTitle": "Please enter a goal",
+      "addSuccess": "Goal added successfully",
+      "deleteSuccess": "Goal deleted successfully",
+      "updateSuccess": "Goal updated successfully"
+    },
+  "time": {
+    "justNow": "less than a minute ago",
+    "minutesAgo": "{{count}} minutes ago",
+    "hoursAgo": "{{count}} hours ago",
+    "daysAgo": "{{count}} days ago"
+  },
+    "common": {
     "loading": "Loading...",
     "error": "Error",
     "success": "Success",
@@ -161,5 +653,9 @@
     "delete": "Delete",
     "edit": "Edit",
     "back": "Back"
+  },
+  "organizationPage": {
+    "membersButton": "Members",
+    "membersTitle": "Organization Members"
   }
 }

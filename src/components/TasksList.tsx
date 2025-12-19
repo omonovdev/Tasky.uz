@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authJwt } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { MoreVertical, Edit, Trash2, FileText, CheckCircle2, XCircle, Clock, TrendingUp, Calendar, User, Sparkles, ArrowRight, Flame, Award, Target } from "lucide-react";
@@ -31,6 +33,7 @@ import TaskReportsDialog from "./TaskReportsDialog";
 import TaskDeclineDialog from "./TaskDeclineDialog";
 import EstimatedTimeDialog from "./EstimatedTimeDialog";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 interface Task {
   id: string;
@@ -39,6 +42,7 @@ interface Task {
   deadline: string;
   status: string;
   assigned_to: string;
+  assigned_by: string;
   assigned_to_name?: string;
   assigned_by_name?: string;
   created_at: string;
@@ -61,12 +65,20 @@ interface TasksListProps {
   onFilterChange?: (filter: "all" | "pending" | "completed") => void;
 }
 
-// Cache key factory for better organization
 const taskKeys = {
   all: ['tasks'] as const,
   lists: () => [...taskKeys.all, 'list'] as const,
   list: (orgId: string, userId?: string) => [...taskKeys.lists(), { orgId, userId }] as const,
   detail: (id: string) => [...taskKeys.all, 'detail', id] as const,
+};
+
+const formatEstimatedTime = (minutes?: number | null) => {
+  if (!minutes) return null;
+  const hrs = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hrs === 0) return `${mins}m`;
+  if (mins === 0) return `${hrs}h`;
+  return `${hrs}h ${mins}m`;
 };
 
 export default function TasksList({ 
@@ -76,6 +88,8 @@ export default function TasksList({
   filterStatus = "all", 
   onFilterChange 
 }: TasksListProps) {
+  const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const [deletingTask, setDeletingTask] = useState<string | null>(null);
   const [viewingReports, setViewingReports] = useState<string | null>(null);
@@ -88,176 +102,76 @@ export default function TasksList({
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const initUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setCurrentUserId(user?.id || null);
-    };
-    initUser();
+    setCurrentUserId(authJwt.getUserId());
   }, []);
 
-  // Fetch tasks with React Query caching
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: taskKeys.list(organizationId, showOnlyMyTasks ? currentUserId || undefined : undefined),
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("User not authenticated");
-
-      const query = supabase
-        .from('tasks')
-        .select(`
-          id,
-          title,
-          description,
-          deadline,
-          status,
-          assigned_to,
-          assigned_by,
-          created_at,
-          last_edited_by,
-          last_edited_at,
-          decline_reason,
-          estimated_completion_hours
-        `)
-        .eq('organization_id', organizationId)
-        .order('deadline', { ascending: true });
-
-      let data;
-      let error;
-
-      if (showOnlyMyTasks) {
-        const { data: myAssignments } = await supabase
-          .from('task_assignments')
-          .select('task_id')
-          .eq('user_id', user.id);
-
-        const myTaskIds = myAssignments?.map(a => a.task_id) || [];
-        
-        if (myTaskIds.length === 0) {
-          return [];
-        }
-
-        const result = await query.in('id', myTaskIds);
-        data = result.data;
-        error = result.error;
-      } else {
-        const result = await query;
-        data = result.data;
-        error = result.error;
+      if (!organizationId || organizationId.startsWith("11111111-")) {
+        return [];
       }
 
-      if (error) throw error;
+      const all = !showOnlyMyTasks;
+      const data = await api.tasks.list({ organizationId, all });
 
-      // Batch fetch all profiles at once
-      const allUserIds = new Set<string>();
-      (data || []).forEach(task => {
-        allUserIds.add(task.assigned_to);
-        allUserIds.add(task.assigned_by);
-        if (task.last_edited_by) allUserIds.add(task.last_edited_by);
-      });
-
-      const { data: allProfiles } = await supabase
-        .from('profiles')
-        .select('id, first_name, last_name')
-        .in('id', Array.from(allUserIds));
-
-      const profilesMap = new Map(
-        allProfiles?.map(p => [p.id, `${p.first_name} ${p.last_name}`]) || []
-      );
-
-      // Batch fetch all task assignments
-      const taskIds = (data || []).map(t => t.id);
-      const { data: allAssignments } = await supabase
-        .from('task_assignments')
-        .select('task_id, user_id')
-        .in('task_id', taskIds);
-
-      const assignmentsMap = new Map<string, string[]>();
-      allAssignments?.forEach(assignment => {
-        if (!assignmentsMap.has(assignment.task_id)) {
-          assignmentsMap.set(assignment.task_id, []);
-        }
-        assignmentsMap.get(assignment.task_id)?.push(assignment.user_id);
-      });
-
-      // Map tasks with names
-      const tasksWithNames = (data || []).map((task) => {
-        const assigneeIds = assignmentsMap.get(task.id) || [task.assigned_to];
-        const names = assigneeIds
-          .map(id => profilesMap.get(id))
+      return (data || []).map((task: any) => {
+        const assigneeUsers = (task.assignments || [])
+          .map((a: any) => a.user)
+          .filter(Boolean);
+        const namesFromAssignments = assigneeUsers
+          .map((u: any) => `${u.firstName || ""} ${u.lastName || ""}`.trim())
           .filter(Boolean)
-          .join(', ') || 'Unknown';
+          .join(", ");
+        const assignedToName = task.assignedTo
+          ? `${task.assignedTo.firstName || ""} ${task.assignedTo.lastName || ""}`.trim()
+          : "";
+        const assignedToNames = namesFromAssignments || assignedToName || "Unknown";
+
+        const assignedByName = task.assignedBy
+          ? `${task.assignedBy.firstName || ""} ${task.assignedBy.lastName || ""}`.trim()
+          : "Unknown";
+
+        let editorName: string | undefined = undefined;
+        if (task.lastEditedBy) {
+          const candidates = [
+            task.assignedBy,
+            task.assignedTo,
+            ...assigneeUsers,
+          ].filter(Boolean);
+          const found = candidates.find((u: any) => u.id === task.lastEditedBy);
+          if (found) {
+            editorName = `${found.firstName || ""} ${found.lastName || ""}`.trim() || undefined;
+          }
+        }
 
         return {
-          ...task,
-          assigned_to_name: names,
-          assigned_by_name: profilesMap.get(task.assigned_by) || 'Unknown',
-          last_edited_by_name: task.last_edited_by 
-            ? profilesMap.get(task.last_edited_by) 
-            : undefined,
-        };
+          id: task.id,
+          title: task.title,
+          description: task.description || "",
+          deadline: task.deadline,
+          status: task.status,
+          assigned_to: task.assignedToId,
+          assigned_by: task.assignedById,
+          assigned_to_name: assignedToNames,
+          assigned_by_name: assignedByName,
+          created_at: task.createdAt,
+          last_edited_by: task.lastEditedBy ?? undefined,
+          last_edited_at: task.lastEditedAt ?? undefined,
+          last_edited_by_name: editorName,
+          decline_reason: task.declineReason ?? null,
+          estimated_completion_hours: task.estimatedCompletionHours ?? null,
+        } satisfies Task;
       });
-
-      return tasksWithNames;
     },
     staleTime: 30000,
     gcTime: 5 * 60 * 1000,
     enabled: !!currentUserId,
   });
 
-  // Set up realtime subscription
-  useEffect(() => {
-    if (!organizationId) return;
-
-    const channel = supabase
-      .channel(`tasks-changes-${organizationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `organization_id=eq.${organizationId}`
-        },
-        (payload) => {
-          if (payload.eventType === 'UPDATE' && payload.new) {
-            queryClient.setQueryData<Task[]>(
-              taskKeys.list(organizationId, showOnlyMyTasks ? currentUserId || undefined : undefined),
-              (old = []) => {
-                return old.map(task => 
-                  task.id === payload.new.id 
-                    ? { ...task, ...payload.new as any }
-                    : task
-                );
-              }
-            );
-          } else if (payload.eventType === 'DELETE' && payload.old) {
-            queryClient.setQueryData<Task[]>(
-              taskKeys.list(organizationId, showOnlyMyTasks ? currentUserId || undefined : undefined),
-              (old = []) => old.filter(task => task.id !== payload.old.id)
-            );
-          } else {
-            queryClient.invalidateQueries({
-              queryKey: taskKeys.list(organizationId, showOnlyMyTasks ? currentUserId || undefined : undefined)
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [organizationId, queryClient, showOnlyMyTasks, currentUserId]);
-
-  // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (taskId: string) => {
-      const { error } = await supabase
-        .from('tasks')
-        .delete()
-        .eq('id', taskId);
-
-      if (error) throw error;
+      await api.tasks.delete(taskId);
       return taskId;
     },
     onMutate: async (taskId) => {
@@ -284,15 +198,15 @@ export default function TasksList({
         );
       }
       toast({
-        title: "Error",
-        description: "Failed to delete task",
+        title: t("common.error"),
+        description: t("tasksPageSection.deleteError"),
         variant: "destructive",
       });
     },
     onSuccess: () => {
       toast({
-        title: "Success",
-        description: "Task deleted successfully",
+        title: t("common.success"),
+        description: t("tasksPageSection.deleteSuccess"),
       });
       setDeletingTask(null);
     },
@@ -302,9 +216,8 @@ export default function TasksList({
     deleteMutation.mutate(taskId);
   };
 
-  // Memoized grouped tasks
   const groupedTasks: GroupedTasks = tasks.reduce((acc, task) => {
-    const monthYear = format(new Date(task.deadline), 'MMMM yyyy');
+    const monthYear = new Intl.DateTimeFormat(i18n.language, { month: 'long', year: 'numeric' }).format(new Date(task.deadline));
     if (!acc[monthYear]) {
       acc[monthYear] = [];
     }
@@ -320,21 +233,21 @@ export default function TasksList({
     if (totalMinutes < 0) {
       const overdueDays = Math.floor(Math.abs(totalMinutes) / (60 * 24));
       const overdueHours = Math.floor(Math.abs(totalMinutes) / 60);
-      if (overdueDays > 0) return `Overdue by ${overdueDays} day${overdueDays > 1 ? 's' : ''}`;
-      return `Overdue by ${overdueHours} hour${overdueHours > 1 ? 's' : ''}`;
+      if (overdueDays > 0) return t("tasksPageSection.time.overdueDays", { count: overdueDays });
+      return t("tasksPageSection.time.overdueHours", { count: overdueHours });
     }
     
     if (totalMinutes < 60) {
-      return `${totalMinutes} minute${totalMinutes !== 1 ? 's' : ''} left`;
+      return t("tasksPageSection.time.minutesLeft", { count: totalMinutes });
     }
     
     const totalHours = Math.floor(totalMinutes / 60);
     if (totalHours < 24) {
-      return `${totalHours} hour${totalHours !== 1 ? 's' : ''} left`;
+      return t("tasksPageSection.time.hoursLeft", { count: totalHours });
     }
     
     const totalDays = Math.floor(totalHours / 24);
-    return `${totalDays} day${totalDays !== 1 ? 's' : ''} left`;
+    return t("tasksPageSection.time.daysLeft", { count: totalDays });
   };
 
   const getCompletionPercentage = (status: string) => {
@@ -393,21 +306,19 @@ export default function TasksList({
 
   return (
     <div className="space-y-6">
-      {/* Header Section */}
       <div className="flex items-center justify-between animate-in fade-in slide-in-from-top-4 duration-500">
         <div>
           <h2 className="text-3xl font-bold flex items-center gap-3">
             <Target className="h-7 w-7 text-primary animate-pulse" />
-            Your Tasks
+            {t("tasksPageSection.title")}
           </h2>
-          <p className="text-muted-foreground mt-1">Track and manage your work efficiently</p>
+          <p className="text-muted-foreground mt-1">{t("tasksPageSection.subtitle")}</p>
         </div>
         {isCreator && (
           <CreateTaskDialog organizationId={organizationId} onTaskCreated={handleTaskUpdated} />
         )}
       </div>
 
-      {/* Stats Cards - Enhanced Design */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-5 duration-500">
         <Card 
           className={cn(
@@ -438,7 +349,7 @@ export default function TasksList({
             <h3 className="text-4xl font-bold text-primary mb-2 group-hover:scale-110 transition-transform">
               {inProgressCount}
             </h3>
-            <p className="text-sm text-muted-foreground font-medium">To Be Completed</p>
+            <p className="text-sm text-muted-foreground font-medium">{t("tasksPageSection.toBeCompleted")}</p>
             <Progress value={(inProgressCount / (tasks.length || 1)) * 100} className="h-1.5 mt-3" />
           </CardContent>
         </Card>
@@ -472,29 +383,27 @@ export default function TasksList({
             <h3 className="text-4xl font-bold text-success mb-2 group-hover:scale-110 transition-transform">
               {completedCount}
             </h3>
-            <p className="text-sm text-muted-foreground font-medium">Completed Tasks</p>
+            <p className="text-sm text-muted-foreground font-medium">{t("tasksPageSection.completedTasks")}</p>
             <Progress value={(completedCount / (tasks.length || 1)) * 100} className="h-1.5 mt-3 [&>div]:bg-success" />
           </CardContent>
         </Card>
       </div>
 
-      {/* Tasks Display */}
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
         {filteredTasks.length === 0 ? (
           <Card className="p-12 text-center border-2 border-dashed">
             <Target className="h-20 w-20 text-muted-foreground/20 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">No tasks found</h3>
+            <h3 className="text-xl font-semibold mb-2">{t("tasksPageSection.emptyTitle")}</h3>
             <p className="text-muted-foreground">
               {effectiveFilter === 'completed' 
-                ? 'No completed tasks yet. Keep working!' 
+                ? t("tasksPageSection.emptyCompleted") 
                 : effectiveFilter === 'in_progress' || effectiveFilter === 'pending'
-                ? 'No tasks in progress. Great job staying on top of things!'
-                : 'Create your first task to get started'}
+                ? t("tasksPageSection.emptyInProgress")
+                : t("tasksPageSection.emptyDefault")}
             </p>
           </Card>
         ) : (
           <div className="space-y-8">
-            {/* In Progress Tasks */}
             {filteredTasks.filter(t => t.status === 'in_progress' || t.status === 'pending').length > 0 && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-lg py-3 z-20 border-b-2">
@@ -502,14 +411,14 @@ export default function TasksList({
                     <TrendingUp className="h-5 w-5 text-primary" />
                   </div>
                   <h3 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/50 bg-clip-text text-transparent">
-                    Active Tasks
+                    {t("tasksPageSection.activeTasks")}
                   </h3>
                   <Badge variant="secondary" className="ml-auto">
-                    {filteredTasks.filter(t => t.status === 'in_progress' || t.status === 'pending').length} tasks
+                    {t("tasksPageSection.countTasks", { count: filteredTasks.filter(t => t.status === 'in_progress' || t.status === 'pending').length })}
                   </Badge>
                 </div>
 
-                {Object.entries(groupedTasks).map(([month, monthTasks]) => {
+                        {Object.entries(groupedTasks).map(([month, monthTasks]) => {
                   const inProgressTasks = monthTasks.filter(t => 
                     (t.status === 'in_progress' || t.status === 'pending') && filteredTasks.includes(t)
                   );
@@ -542,9 +451,8 @@ export default function TasksList({
                               style={{ animationDelay: `${index * 75}ms` }}
                               onMouseEnter={() => setHoveredTask(task.id)}
                               onMouseLeave={() => setHoveredTask(null)}
-                              onClick={() => window.location.href = `/task/${task.id}`}
+                              onClick={() => navigate(`/task/${task.id}`)}
                             >
-                              {/* Animated Background Gradient */}
                               <div className={cn(
                                 "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
                                 urgency === 'overdue' && "bg-gradient-to-br from-destructive/10 to-transparent",
@@ -554,7 +462,6 @@ export default function TasksList({
                               )} />
 
                               <div className="relative p-6 space-y-4">
-                                {/* Header */}
                                 <div className="flex items-start justify-between gap-4">
                                   <div className="flex-1 min-w-0 space-y-2">
                                     <div className="flex items-start gap-3">
@@ -585,42 +492,81 @@ export default function TasksList({
                                       </div>
                                     </div>
 
-                                    {/* Metadata */}
                                     <div className="flex flex-wrap items-center gap-3 text-xs">
                                       <div className="flex items-center gap-1.5 px-2 py-1 bg-background/50 rounded-md">
                                         <User className="h-3 w-3 text-primary" />
                                         <span className="font-medium">{task.assigned_to_name}</span>
                                       </div>
-                                      <div className="flex items-center gap-1.5 px-2 py-1 bg-background/50 rounded-md">
-                                        <Calendar className="h-3 w-3 text-muted-foreground" />
-                                        <span>{format(new Date(task.deadline), 'MMM dd, yyyy')}</span>
-                                      </div>
                                       {task.estimated_completion_hours && (
                                         <div className="flex items-center gap-1.5 px-2 py-1 bg-background/50 rounded-md">
                                           <Clock className="h-3 w-3 text-muted-foreground" />
-                                          <span>{task.estimated_completion_hours}h</span>
+                                          <span>{formatEstimatedTime(task.estimated_completion_hours)}</span>
                                         </div>
                                       )}
                                     </div>
                                   </div>
 
-                                  {/* Right Side Info */}
-                                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                                  {/* ✨ YANGI: Right Side Info with Deadline Card */}
+                                  <div className="flex flex-col items-end gap-3 flex-shrink-0">
                                     <Badge
                                       variant={task.status === 'pending' ? 'pending' : 'inProgress'}
                                       className="animate-in zoom-in"
                                     >
-                                      {task.status === 'pending' ? 'Pending' : 'In Progress'}
+                                      {task.status === 'pending' ? t("tasks.pending") : t("tasks.inProgress")}
                                     </Badge>
 
+                                    {/* Deadline Card */}
                                     <div className={cn(
-                                      "text-right font-bold text-sm px-2 py-1 rounded-md",
-                                      urgency === 'overdue' && "text-destructive bg-destructive/10",
-                                      urgency === 'critical' && "text-destructive",
-                                      urgency === 'urgent' && "text-amber-500",
-                                      urgency === 'normal' && "text-primary"
+                                      "relative group/deadline overflow-hidden rounded-xl p-3 border-2 transition-all duration-300 min-w-[140px]",
+                                      "hover:scale-105 hover:shadow-lg backdrop-blur-sm",
+                                      urgency === 'overdue' && "bg-gradient-to-br from-destructive/20 to-destructive/10 border-destructive/40 shadow-destructive/20",
+                                      urgency === 'critical' && "bg-gradient-to-br from-destructive/15 to-destructive/5 border-destructive/30",
+                                      urgency === 'urgent' && "bg-gradient-to-br from-amber-500/15 to-amber-500/5 border-amber-500/30 shadow-amber-500/10",
+                                      urgency === 'normal' && "bg-gradient-to-br from-primary/15 to-primary/5 border-primary/30 shadow-primary/10"
                                     )}>
-                                      {formatTimeRemaining(task.deadline)}
+                                      <div className="absolute -right-2 -top-2 opacity-10 group-hover/deadline:opacity-20 transition-opacity rotate-12">
+                                        <Calendar className="h-16 w-16" />
+                                      </div>
+
+                                      <div className="relative space-y-2">
+                                        <div className="flex items-center gap-2">
+                                          <Clock className={cn(
+                                            "h-4 w-4 flex-shrink-0",
+                                            urgency === 'overdue' && "text-destructive animate-pulse",
+                                            urgency === 'critical' && "text-destructive",
+                                            urgency === 'urgent' && "text-amber-600",
+                                            urgency === 'normal' && "text-primary"
+                                          )} />
+                                          <div className={cn(
+                                            "font-black text-xl leading-none",
+                                            urgency === 'overdue' && "text-destructive animate-pulse",
+                                            urgency === 'critical' && "text-destructive",
+                                            urgency === 'urgent' && "text-amber-600",
+                                            urgency === 'normal' && "text-primary"
+                                          )}>
+                                            {formatTimeRemaining(task.deadline)}
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                          <Calendar className="h-3 w-3" />
+                                          <span className="font-medium">
+                                            {format(new Date(task.deadline), 'MMM dd, yyyy')}
+                                          </span>
+                                        </div>
+
+                                        <div className="h-1 w-full bg-background/50 rounded-full overflow-hidden">
+                                          <div 
+                                            className={cn(
+                                              "h-full rounded-full transition-all duration-1000",
+                                              urgency === 'overdue' && "w-full bg-destructive animate-pulse",
+                                              urgency === 'critical' && "w-3/4 bg-destructive",
+                                              urgency === 'urgent' && "w-1/2 bg-amber-500",
+                                              urgency === 'normal' && "w-1/4 bg-primary"
+                                            )}
+                                          />
+                                        </div>
+                                      </div>
                                     </div>
 
                                     <DropdownMenu>
@@ -638,37 +584,33 @@ export default function TasksList({
                                           <>
                                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setViewingReports(task.id); }}>
                                               <FileText className="h-4 w-4 mr-2" />
-                                              View Reports
+                                              {t("tasksPageSection.actions.viewReports")}
                                             </DropdownMenuItem>
                                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditingTask(task.id); }}>
                                               <Edit className="h-4 w-4 mr-2" />
-                                              Edit
+                                              {t("tasksPageSection.actions.edit")}
                                             </DropdownMenuItem>
                                             <DropdownMenuItem 
                                               onClick={(e) => { e.stopPropagation(); setDeletingTask(task.id); }}
                                               className="text-destructive"
                                             >
                                               <Trash2 className="h-4 w-4 mr-2" />
-                                              Delete
+                                              {t("tasksPageSection.actions.delete")}
                                             </DropdownMenuItem>
                                           </>
                                         )}
                                         {!isCreator && (
                                           <>
-                                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditingTask(task.id); }}>
-                                              <Edit className="h-4 w-4 mr-2" />
-                                              Edit Task
-                                            </DropdownMenuItem>
                                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEstimatingTask(task); }}>
                                               <Clock className="h-4 w-4 mr-2" />
-                                              Set Estimated Time
+                                              {t("tasksPageSection.actions.setEstimate")}
                                             </DropdownMenuItem>
                                             <DropdownMenuItem 
                                               onClick={(e) => { e.stopPropagation(); setDecliningTask(task.id); }}
                                               className="text-destructive"
                                             >
                                               <XCircle className="h-4 w-4 mr-2" />
-                                              Cannot Complete
+                                              {t("tasksPageSection.actions.cannotComplete")}
                                             </DropdownMenuItem>
                                           </>
                                         )}
@@ -677,34 +619,31 @@ export default function TasksList({
                                   </div>
                                 </div>
 
-                                {/* Progress Section */}
-                                <div className="space-y-2">
-                                  <FireProgress deadline={task.deadline} createdAt={task.created_at} />
-                                  
+                                    <div className="space-y-2">
+                                      <FireProgress deadline={task.deadline} createdAt={task.created_at} />
+                                      
                                   <div className="space-y-1.5">
                                     <div className="flex items-center justify-between text-xs">
-                                      <span className="text-muted-foreground font-medium">Task Progress</span>
+                                      <span className="text-muted-foreground font-medium">{t("tasksPageSection.taskProgress")}</span>
                                       <span className="font-bold">{completionPercentage}%</span>
                                     </div>
-                                    <Progress 
-                                      value={completionPercentage} 
+                                        <Progress 
+                                          value={completionPercentage} 
                                       className="h-2 group-hover:h-2.5 transition-all [&>div]:bg-gradient-to-r [&>div]:from-primary [&>div]:to-primary/50" 
                                     />
                                   </div>
                                 </div>
 
-                                {/* Decline Reason */}
                                 {task.decline_reason && (
                                   <div className="flex gap-2 p-3 bg-destructive/10 border-l-4 border-destructive rounded-r-lg animate-in slide-in-from-left-2">
                                     <XCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-xs font-semibold text-destructive">Cannot Complete</p>
+                                      <p className="text-xs font-semibold text-destructive">{t("tasksPageSection.cannotComplete")}</p>
                                       <p className="text-xs text-muted-foreground mt-0.5">{task.decline_reason}</p>
                                     </div>
                                   </div>
                                 )}
 
-                                {/* Hover Arrow */}
                                 <ArrowRight className="absolute bottom-6 right-6 h-5 w-5 text-primary opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                               </div>
                             </Card>
@@ -717,7 +656,6 @@ export default function TasksList({
               </div>
             )}
 
-            {/* Completed Tasks */}
             {filteredTasks.filter(t => t.status === "completed").length > 0 && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-lg py-3 z-20 border-b-2">
@@ -725,14 +663,14 @@ export default function TasksList({
                     <Award className="h-5 w-5 text-success" />
                   </div>
                   <h3 className="text-2xl font-bold bg-gradient-to-r from-success to-success/50 bg-clip-text text-transparent">
-                    Completed Tasks
+                    {t("tasksPageSection.completedHeader")}
                   </h3>
                   <Badge variant="secondary" className="ml-auto bg-success/10 text-success border-success/20">
-                    {filteredTasks.filter(t => t.status === "completed").length} completed
+                    {t("tasksPageSection.completedCount", { count: filteredTasks.filter(t => t.status === "completed").length })}
                   </Badge>
                 </div>
 
-                {Object.entries(groupedTasks).map(([month, monthTasks]) => {
+                        {Object.entries(groupedTasks).map(([month, monthTasks]) => {
                   const completedTasks = monthTasks.filter(t => t.status === "completed" && filteredTasks.includes(t));
                   if (completedTasks.length === 0) return null;
                   
@@ -753,7 +691,7 @@ export default function TasksList({
                               "animate-in fade-in slide-in-from-left-4"
                             )}
                             style={{ animationDelay: `${index * 50}ms` }}
-                            onClick={() => window.location.href = `/task/${task.id}`}
+                            onClick={() => navigate(`/task/${task.id}`)}
                           >
                             <div className="absolute top-0 right-0 w-24 h-24 -translate-y-1/2 translate-x-1/2 opacity-5">
                               <CheckCircle2 className="h-24 w-24 text-success" />
@@ -783,16 +721,16 @@ export default function TasksList({
                                       <User className="h-3 w-3 text-success" />
                                       <span className="font-medium">{task.assigned_to_name}</span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-background/50 rounded-md">
-                                      <Calendar className="h-3 w-3 text-muted-foreground" />
-                                      <span>{format(new Date(task.deadline), 'MMM dd, yyyy')}</span>
+                                      <div className="flex items-center gap-1.5 px-2 py-1 bg-background/50 rounded-md">
+                                        <Calendar className="h-3 w-3 text-muted-foreground" />
+                                        <span>{new Intl.DateTimeFormat(i18n.language, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(task.deadline))}</span>
+                                      </div>
                                     </div>
-                                  </div>
                                 </div>
 
                                 <div className="flex flex-col items-end gap-2 flex-shrink-0">
                                   <Badge variant="completed" className="animate-in zoom-in">
-                                    Completed
+                                    {t("tasks.completed")}
                                   </Badge>
                                   
                                   {isCreator && (
@@ -809,18 +747,18 @@ export default function TasksList({
                                       <DropdownMenuContent align="end">
                                         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setViewingReports(task.id); }}>
                                           <FileText className="h-4 w-4 mr-2" />
-                                          View Reports
+                                          {t("tasksPageSection.actions.viewReports")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditingTask(task.id); }}>
                                           <Edit className="h-4 w-4 mr-2" />
-                                          Edit
+                                          {t("tasksPageSection.actions.edit")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem 
                                           onClick={(e) => { e.stopPropagation(); setDeletingTask(task.id); }}
                                           className="text-destructive"
                                         >
                                           <Trash2 className="h-4 w-4 mr-2" />
-                                          Delete
+                                          {t("tasksPageSection.actions.delete")}
                                         </DropdownMenuItem>
                                       </DropdownMenuContent>
                                     </DropdownMenu>
@@ -842,7 +780,6 @@ export default function TasksList({
         )}
       </div>
 
-      {/* Dialogs */}
       {editingTask && (
         <EditTaskDialog
           taskId={editingTask}

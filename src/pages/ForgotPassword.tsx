@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,15 +27,11 @@ const ForgotPassword = () => {
     setLoading(true);
     
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/forgot-password`,
-      });
-
-      if (error) throw error;
+      await api.auth.requestReset({ email });
 
       toast({
-        title: "Code sent!",
-        description: "Check your email for the verification code",
+        title: "Kod yuborildi!",
+        description: "Emaillarni tekshiring, 6 xonali kod keldi.",
       });
       
       setStep("code");
@@ -86,14 +82,19 @@ const ForgotPassword = () => {
       return;
     }
 
+    if (code.length !== 6) {
+      toast({
+        title: "Invalid code",
+        description: "Please enter the 6-digit code",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
     
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: password,
-      });
-
-      if (error) throw error;
+      await api.auth.resetPassword({ token: code, newPassword: password });
 
       toast({
         title: "Password reset successful!",
@@ -132,7 +133,7 @@ const ForgotPassword = () => {
           </CardTitle>
           <CardDescription className="text-center">
             {step === "email" && "Enter your email to receive a verification code"}
-            {step === "code" && "Enter the 6-digit code sent to your email"}
+            {step === "code" && "Enter the 4-digit code sent to your email"}
             {step === "password" && "Create a new password for your account"}
           </CardDescription>
         </CardHeader>

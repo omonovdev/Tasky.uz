@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Trash2, Users, MoreVertical, Edit3, X, UserPlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -89,159 +89,87 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     fetchMembers();
     fetchUserRole();
 
-    // Subscribe to realtime changes
-    const membersChannel = supabase
-      .channel('organization-members-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'organization_members',
-          filter: `organization_id=eq.${organizationId}`
-        },
-        () => {
-          fetchMembers();
-        }
-      )
-      .subscribe();
-
-    const invitationsChannel = supabase
-      .channel('organization-invitations-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'organization_invitations',
-          filter: `organization_id=eq.${organizationId}`
-        },
-        () => {
-          fetchMembers();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(membersChannel);
-      supabase.removeChannel(invitationsChannel);
-    };
+    const onFocus = () => fetchMembers();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [organizationId]);
 
   const fetchUserRole = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .single();
-
-      if (data) setUserRole(data.role);
+      const data = await api.users.getMyRole();
+      if (data?.role) setUserRole(data.role);
     } catch (error) {
       console.error("Error fetching user role:", error);
     }
   };
 
   const fetchMembers = async () => {
-    // Fetch accepted members
-    const { data, error } = await supabase
-      .from('organization_members')
-      .select(`
-        id,
-        user_id,
-        position,
-        profiles(first_name, last_name, avatar_url)
-      `)
-      .eq('organization_id', organizationId)
-      .order('added_at', { ascending: true });
+    try {
+      const data = await api.organizations.members(organizationId);
+      const formattedMembers = (data || []).map((m: any) => {
+        const profile = m.user || {};
+        return {
+          id: m.id,
+          user_id: m.userId,
+          position: m.position || "Employee",
+          first_name: profile.firstName || "Unknown",
+          last_name: profile.lastName || "User",
+          avatar_url: profile.avatarUrl || "",
+        };
+      });
+      setMembers(formattedMembers);
 
-    if (error) {
+      const invitationsData = await api.organizations.invitations(organizationId);
+      const formattedInvitations = (invitationsData || [])
+        .filter((inv: any) => inv.status === "pending")
+        .map((inv: any) => ({
+          id: inv.id,
+          user_id: inv.employeeId,
+          position: inv.contractDuration || "Employee",
+          first_name: inv.employee?.firstName || "Unknown",
+          last_name: inv.employee?.lastName || "User",
+          avatar_url: inv.employee?.avatarUrl || "",
+          invitation_id: inv.id,
+          invitation_status: inv.status,
+        }));
+      setPendingInvitations(formattedInvitations);
+    } catch (error: any) {
       console.error("Fetch members error:", error);
       toast({
         title: "Error",
-        description: "Failed to load members",
+        description: error?.message || "Failed to load members",
         variant: "destructive",
       });
-      return;
-    }
-
-    const formattedMembers = data
-      .filter((m: any) => m.profiles)
-      .map((m: any) => ({
-        id: m.id,
-        user_id: m.user_id,
-        position: m.position || 'Employee',
-        first_name: m.profiles.first_name,
-        last_name: m.profiles.last_name,
-        avatar_url: m.profiles.avatar_url,
-      }));
-
-    setMembers(formattedMembers);
-
-    // Fetch pending invitations
-    const { data: invitationsData } = await supabase
-      .from('organization_invitations')
-      .select(`
-        id,
-        employee_id,
-        contract_duration,
-        status,
-        profiles(first_name, last_name, avatar_url)
-      `)
-      .eq('organization_id', organizationId)
-      .eq('status', 'pending');
-
-    if (invitationsData) {
-      const formattedInvitations = invitationsData
-        .filter((inv: any) => inv.profiles)
-        .map((inv: any) => ({
-          id: inv.id,
-          user_id: inv.employee_id,
-          position: inv.contract_duration || 'Employee',
-          first_name: inv.profiles.first_name,
-          last_name: inv.profiles.last_name,
-          avatar_url: inv.profiles.avatar_url,
-          invitation_id: inv.id,
-          invitation_status: 'pending',
-        }));
-
-      setPendingInvitations(formattedInvitations);
     }
   };
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) {
+    const q = searchQuery.trim();
+    if (!q) {
       setSearchResults([]);
       return;
     }
 
     setSearching(true);
     try {
-      // Get current organization members (exclude only current members, not pending)
-      const currentMemberIds = members.map(m => m.user_id);
-      const pendingInvitationIds = pendingInvitations.map(inv => inv.user_id);
-      const excludedIds = [...currentMemberIds, ...pendingInvitationIds];
+      const excluded = new Set([
+        ...members.map((m) => m.user_id),
+        ...pendingInvitations.map((inv) => inv.user_id),
+      ]);
 
-      // Build query - search all profiles excluding only current members
-      let query = supabase
-        .from('profiles')
-        .select('id, first_name, last_name, email, avatar_url')
-        .or(`first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
-        .limit(10);
+      const results = await api.users.search(q);
+      const mapped: SearchResult[] = (results || [])
+        .filter((u: any) => !excluded.has(u.id))
+        .slice(0, 10)
+        .map((u: any) => ({
+          id: u.id,
+          first_name: u.firstName,
+          last_name: u.lastName,
+          email: u.email,
+          avatar_url: u.avatarUrl || "",
+        }));
 
-      // Only add exclusion filter if there are IDs to exclude
-      if (excludedIds.length > 0) {
-        query = query.not('id', 'in', `(${excludedIds.join(',')})`);
-      }
-
-      const { data: profiles, error } = await query;
-
-      if (error) throw error;
-
-      setSearchResults(profiles || []);
+      setSearchResults(mapped);
     } catch (error: any) {
       console.error("Search error:", error);
       toast({
@@ -302,41 +230,11 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     setLoading(true);
 
     try {
-      // Check if user already has any invitation (any status)
-      const { data: existingInvitation } = await supabase
-        .from('organization_invitations')
-        .select('id, status')
-        .eq('organization_id', organizationId)
-        .eq('employee_id', userId)
-        .maybeSingle();
-
-      if (existingInvitation) {
-        // If invitation exists, update it to pending with new details
-        const { error: updateError } = await supabase
-          .from('organization_invitations')
-          .update({
-            status: 'pending',
-            invitation_message: invitationMessage,
-            contract_duration: finalPosition,
-            created_at: new Date().toISOString(),
-            accepted_at: null,
-          })
-          .eq('id', existingInvitation.id);
-
-        if (updateError) throw updateError;
-      } else {
-        // Create new invitation
-        const { error: invError } = await supabase
-          .from('organization_invitations')
-          .insert({
-            organization_id: organizationId,
-            employee_id: userId,
-            invitation_message: invitationMessage,
-            contract_duration: finalPosition,
-          });
-
-        if (invError) throw invError;
-      }
+      await api.organizations.invite(organizationId, {
+        employeeId: userId,
+        invitationMessage,
+        contractDuration: finalPosition,
+      });
 
       toast({
         title: "Success",
@@ -378,12 +276,7 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     }
 
     try {
-      const { error } = await supabase
-        .from('organization_members')
-        .update({ position: validation.data })
-        .eq('id', memberId);
-
-      if (error) throw error;
+      await api.organizations.updateMemberPosition(memberId, { position: validation.data });
 
       toast({
         title: "Success",
@@ -415,12 +308,7 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     }
 
     try {
-      const { error } = await supabase
-        .from('organization_members')
-        .delete()
-        .eq('id', memberToRemove.id);
-
-      if (error) throw error;
+      await api.organizations.removeMember(memberToRemove.id);
 
       toast({
         title: "Success",

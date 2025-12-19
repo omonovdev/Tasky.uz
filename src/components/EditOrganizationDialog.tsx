@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Pencil, Trash2 } from "lucide-react";
 
@@ -55,34 +55,17 @@ export default function EditOrganizationDialog({ organization, onUpdate }: EditO
       let photoUrl = organization.photo_url;
 
       if (photoFile) {
-        const fileExt = photoFile.name.split('.').pop();
-        const fileName = `${organization.id}-${Date.now()}.${fileExt}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(fileName, photoFile, { upsert: true });
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(fileName);
-
-        photoUrl = publicUrl;
+        const uploaded = await api.uploads.upload(photoFile, "org_photos");
+        photoUrl = uploaded.url;
       }
 
-      const { error } = await supabase
-        .from('organizations')
-        .update({
-          name,
-          subheadline,
-          description,
-          motto,
-          photo_url: photoUrl,
-        })
-        .eq('id', organization.id);
-
-      if (error) throw error;
+      await api.organizations.update(organization.id, {
+        name,
+        subheadline,
+        description,
+        motto,
+        photoUrl,
+      });
 
       toast({
         title: t("common.success"),
@@ -104,12 +87,7 @@ export default function EditOrganizationDialog({ organization, onUpdate }: EditO
 
   const handleDelete = async () => {
     try {
-      const { error } = await supabase
-        .from("organizations")
-        .delete()
-        .eq("id", organization.id);
-
-      if (error) throw error;
+      await api.organizations.delete(organization.id);
 
       toast({
         title: t("common.success"),
@@ -182,12 +160,7 @@ export default function EditOrganizationDialog({ organization, onUpdate }: EditO
                   size="sm"
                   onClick={async () => {
                     try {
-                      const { error } = await supabase
-                        .from('organizations')
-                        .update({ photo_url: null })
-                        .eq('id', organization.id);
-                      
-                      if (error) throw error;
+                      await api.organizations.update(organization.id, { photoUrl: null });
                       
                       toast({
                         title: t("common.success"),

@@ -1,76 +1,108 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import {
+  initializeSocket,
+  disconnectSocket,
+  joinOrganization,
+  sendMessage as sendSocketMessage,
+  onMessage,
+  offMessage,
+  onReaction,
+  offReaction,
+  sendReaction as sendSocketReaction
+} from "@/lib/socket";
+import WinterBackground from "@/components/WinterBackground";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trophy, Users, MessageSquare, Lightbulb, MoreVertical, Pencil, Trash2, Reply, Smile, Paperclip, Send, Image, FileText, Video, Mic } from "lucide-react";
+import {
+  Trophy,
+  Users,
+  MessageSquare,
+  Lightbulb,
+  Pencil,
+  Trash2,
+  Reply,
+  Smile,
+  Send,
+  Medal,
+  Crown,
+  Star,
+  Zap,
+  CheckCircle2,
+  TrendingUp,
+  Plus,
+  X,
+  Loader2
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
+import { formatRelativeTime } from "@/lib/time";
 
 interface TeamMember {
   id: string;
   first_name: string;
   last_name: string;
-  position: string | null;
+  position: string;
   avatar_url: string | null;
   completed_tasks: number;
   total_tasks: number;
+  completion_rate: number;
 }
 
 interface ChatMessage {
   id: string;
-  user_id: string;
+  organizationId: string;
+  userId: string;
   message: string;
-  created_at: string;
-  edited_at: string | null;
-  is_deleted: boolean;
-  profiles: {
-    first_name: string;
-    last_name: string;
-    avatar_url: string | null;
+  createdAt: string;
+  editedAt: string | null;
+  isDeleted: boolean;
+  user?: {
+    firstName: string;
+    lastName: string;
+    avatarUrl: string | null;
   };
   reactions?: MessageReaction[];
-  reply_to?: ChatMessage | null;
-  attachments?: MessageAttachment[];
+  replyTo?: ChatMessage | null;
+  attachments?: any[];
 }
 
 interface MessageReaction {
   reaction: string;
-  user_id: string;
+  userId: string;
   count: number;
-}
-
-interface MessageAttachment {
-  id: string;
-  file_url: string;
-  file_name: string;
-  file_type: string;
-  file_size: number;
 }
 
 interface Idea {
   id: string;
-  user_id: string;
+  userId: string;
+  organizationId: string;
   title: string;
   description: string | null;
-  created_at: string;
-  profiles: {
-    first_name: string;
-    last_name: string;
-    avatar_url: string | null;
+  createdAt: string;
+  user?: {
+    firstName: string;
+    lastName: string;
+    avatarUrl: string | null;
   };
 }
+
+const emojiOptions = ["👍", "❤️", "😂", "😮", "🎉", "🔥"];
 
 const Team = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { t, i18n } = useTranslation();
+
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -80,91 +112,137 @@ const Team = () => {
   const [loading, setLoading] = useState(true);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [editingIdea, setEditingIdea] = useState<Idea | null>(null);
-  const [editIdeaTitle, setEditIdeaTitle] = useState("");
-  const [editIdeaDescription, setEditIdeaDescription] = useState("");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [editMessageText, setEditMessageText] = useState("");
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState<string | null>(null);
-  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
-  const [uploadingFile, setUploadingFile] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const initializeTeam = async () => {
-      await checkAuth();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setCurrentUserId(user.id);
-      }
-      const orgId = localStorage.getItem("selectedOrganizationId");
-      setSelectedOrgId(orgId);
-      if (orgId) {
-        fetchTeamData(orgId);
-        fetchChatMessages(orgId);
-        fetchIdeas(orgId);
-        subscribeToChat(orgId);
-        subscribeToIdeas(orgId);
-        subscribeToTyping(orgId);
+      setLoading(true);
+      setError(null);
+      try {
+        const orgId = await resolveOrganization();
+        if (orgId && !orgId.startsWith("11111111-")) {
+          setSelectedOrgId(orgId);
+          await fetchTeamData(orgId);
+          await fetchChatMessages(orgId);
+          await fetchIdeas(orgId);
+
+          // Initialize WebSocket
+          try {
+            initializeSocket();
+            joinOrganization(orgId);
+          } catch (socketError) {
+            console.error("WebSocket initialization failed:", socketError);
+          }
+        } else {
+          setError("No organization selected. Please select or create an organization first.");
+          setTimeout(() => navigate("/dashboard"), 3000);
+        }
+      } catch (error: any) {
+        console.error("Team page error:", error);
+        setError(error.message || "Failed to load team data");
+        toast({
+          title: "Error",
+          description: error.message,
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
       }
     };
+
     initializeTeam();
+
+    return () => {
+      disconnectSocket();
+    };
   }, []);
+
+  // WebSocket listeners
+  useEffect(() => {
+    if (!selectedOrgId) return;
+
+    const handleNewMessage = (message: any) => {
+      console.log('📨 Received new message:', message);
+      if (selectedOrgId) {
+        fetchChatMessages(selectedOrgId);
+      }
+    };
+
+    const handleReactionUpdate = (message: any) => {
+      console.log('👍 Received reaction update:', message);
+      if (selectedOrgId) {
+        fetchChatMessages(selectedOrgId);
+      }
+    };
+
+    onMessage(handleNewMessage);
+    onReaction(handleReactionUpdate);
+
+    return () => {
+      offMessage(handleNewMessage);
+      offReaction(handleReactionUpdate);
+    };
+  }, [selectedOrgId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/auth");
-    }
+  const resolveOrganization = async () => {
+    const saved = localStorage.getItem("selectedOrganizationId");
+    if (saved) return saved;
+    return null;
   };
 
   const fetchTeamData = async (orgId: string) => {
     try {
-      const { data: members } = await supabase
-        .from("organization_members")
-        .select("user_id, profiles(id, first_name, last_name, position, avatar_url)")
-        .eq("organization_id", orgId);
+      if (!orgId || orgId.startsWith("11111111-")) {
+        setTeamMembers([]);
+        return;
+      }
 
-      if (!members) return;
+      const [members, tasks] = await Promise.all([
+        api.organizations.members(orgId),
+        api.tasks.list({ organizationId: orgId, all: true }),
+      ]);
 
-      const teamData = await Promise.all(
-        members
-          .filter(m => m.profiles)
-          .map(async (member: any) => {
-            const profile = member.profiles;
-            const { data: assignments } = await supabase
-              .from("task_assignments")
-              .select("task_id")
-              .eq("user_id", profile.id);
+      const statsByUser: Record<string, { total: number; completed: number }> = {};
+      (tasks || []).forEach((task: any) => {
+        (task.assignments || []).forEach((a: any) => {
+          const uid = a.userId;
+          if (!uid) return;
+          if (!statsByUser[uid]) statsByUser[uid] = { total: 0, completed: 0 };
+          statsByUser[uid].total += 1;
+          if (task.status === "completed") statsByUser[uid].completed += 1;
+        });
+      });
 
-            const taskIds = assignments?.map(a => a.task_id) || [];
-            
-            const { data: tasks } = await supabase
-              .from("tasks")
-              .select("status")
-              .in("id", taskIds);
+      const teamData: TeamMember[] = (members || [])
+        .filter((m: any) => m.user)
+        .map((m: any) => {
+          const uid = m.userId;
+          const stat = statsByUser[uid] || { total: 0, completed: 0 };
+          const completionRate = stat.total > 0 ? (stat.completed / stat.total) * 100 : 0;
+          return {
+            id: uid,
+            first_name: m.user.firstName,
+            last_name: m.user.lastName,
+            position: m.position || "Employee",
+            avatar_url: m.user.avatarUrl,
+            completed_tasks: stat.completed,
+            total_tasks: stat.total,
+            completion_rate: completionRate,
+          };
+        });
 
-            const completedCount = tasks?.filter(t => t.status === "completed").length || 0;
-
-            return {
-              id: profile.id,
-              first_name: profile.first_name,
-              last_name: profile.last_name,
-              position: profile.position,
-              avatar_url: profile.avatar_url,
-              completed_tasks: completedCount,
-              total_tasks: tasks?.length || 0,
-            };
-          })
-      );
-
-      teamData.sort((a, b) => b.completed_tasks - a.completed_tasks);
+      teamData.sort((a, b) => b.completion_rate - a.completion_rate);
       setTeamMembers(teamData);
     } catch (error: any) {
       toast({
@@ -172,297 +250,90 @@ const Team = () => {
         description: error.message,
         variant: "destructive",
       });
-    } finally {
-      setLoading(false);
     }
   };
 
   const fetchChatMessages = async (orgId: string) => {
     try {
-      const { data, error } = await supabase
-        .from("organization_chat")
-        .select(`
-          id,
-          user_id,
-          message,
-          created_at,
-          edited_at,
-          is_deleted,
-          profiles(first_name, last_name, avatar_url)
-        `)
-        .eq("organization_id", orgId)
-        .order("created_at", { ascending: true })
-        .limit(100);
+      if (!orgId || orgId.startsWith("11111111-")) {
+        setChatMessages([]);
+        return;
+      }
+      const rows = await api.chat.list(orgId, 200);
 
-      if (error) throw error;
-
-      // Fetch reactions, replies, and attachments for each message
-      const messagesWithDetails = await Promise.all(
-        (data || []).map(async (msg) => {
-          const [reactionsData, repliesData, attachmentsData] = await Promise.all([
-            supabase
-              .from("organization_chat_reactions")
-              .select("id, reaction, user_id")
-              .eq("message_id", msg.id),
-            supabase
-              .from("organization_chat_replies")
-              .select("reply_to_message_id")
-              .eq("message_id", msg.id)
-              .single(),
-            supabase
-              .from("organization_chat_attachments")
-              .select("*")
-              .eq("message_id", msg.id)
-          ]);
-
-          // Group reactions by emoji
-          const reactionsMap = new Map<string, { reaction: string; user_id: string; count: number }>();
-          reactionsData.data?.forEach(r => {
-            const existing = reactionsMap.get(r.reaction);
-            if (existing) {
-              existing.count++;
-            } else {
-              reactionsMap.set(r.reaction, { reaction: r.reaction, user_id: r.user_id, count: 1 });
+      const mapped = (rows || []).map((m: any) => ({
+        id: m.id,
+        organizationId: m.organizationId,
+        userId: m.userId,
+        message: m.message,
+        createdAt: m.createdAt,
+        editedAt: m.editedAt,
+        isDeleted: Boolean(m.isDeleted),
+        user: m.user
+          ? {
+              firstName: m.user.firstName,
+              lastName: m.user.lastName,
+              avatarUrl: m.user.avatarUrl,
             }
-          });
+          : undefined,
+        reactions: (m.reactions || []).map((r: any) => ({
+          id: r.id,
+          userId: r.userId,
+          reaction: r.reaction,
+        })),
+      }));
 
-          let replyTo = null;
-          if (repliesData.data?.reply_to_message_id) {
-            const { data: replyMsg } = await supabase
-              .from("organization_chat")
-              .select("id, message, user_id, profiles(first_name, last_name)")
-              .eq("id", repliesData.data.reply_to_message_id)
-              .single();
-            replyTo = replyMsg;
-          }
-
-          return {
-            ...msg,
-            reactions: Array.from(reactionsMap.values()),
-            reply_to: replyTo,
-            attachments: attachmentsData.data || []
-          };
-        })
-      );
-
-      setChatMessages(messagesWithDetails);
+      setChatMessages(mapped);
     } catch (error: any) {
-      console.error("Error fetching chat:", error);
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
     }
-  };
-
-  const subscribeToChat = (orgId: string) => {
-    const channel = supabase
-      .channel(`org-chat-${orgId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "organization_chat",
-          filter: `organization_id=eq.${orgId}`,
-        },
-        () => {
-          fetchChatMessages(orgId);
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "organization_chat_reactions"
-        },
-        () => {
-          fetchChatMessages(orgId);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  };
-
-  const subscribeToTyping = (orgId: string) => {
-    const channel = supabase
-      .channel(`org-typing-${orgId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "organization_chat_typing",
-          filter: `organization_id=eq.${orgId}`,
-        },
-        async () => {
-          const { data } = await supabase
-            .from("organization_chat_typing")
-            .select("user_id")
-            .eq("organization_id", orgId)
-            .gte("last_typed_at", new Date(Date.now() - 3000).toISOString());
-          
-          setTypingUsers(new Set(data?.map(t => t.user_id).filter(id => id !== currentUserId) || []));
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   };
 
   const fetchIdeas = async (orgId: string) => {
     try {
-      const { data, error } = await supabase
-        .from("organization_ideas")
-        .select("*")
-        .eq("organization_id", orgId)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      
-      if (data && data.length > 0) {
-        const userIds = data.map(idea => idea.user_id);
-        const { data: profilesData } = await supabase
-          .from("profiles")
-          .select("id, first_name, last_name, avatar_url")
-          .in("id", userIds);
-        
-        const profilesMap = new Map(profilesData?.map(p => [p.id, p]));
-        
-        const ideasWithProfiles = data.map(idea => ({
-          ...idea,
-          profiles: profilesMap.get(idea.user_id) || {
-            first_name: "Unknown",
-            last_name: "User",
-            avatar_url: null,
-          },
-        }));
-        
-        setIdeas(ideasWithProfiles);
-      } else {
+      if (!orgId || orgId.startsWith("11111111-")) {
         setIdeas([]);
+        return;
       }
+      const rows = await api.ideas.list(orgId);
+      setIdeas(rows || []);
     } catch (error: any) {
-      console.error("Error fetching ideas:", error);
-    }
-  };
-
-  const subscribeToIdeas = (orgId: string) => {
-    const channel = supabase
-      .channel(`org-ideas-${orgId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "organization_ideas",
-          filter: `organization_id=eq.${orgId}`,
-        },
-        () => {
-          fetchIdeas(orgId);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  };
-
-  const handleTyping = async () => {
-    if (!selectedOrgId || !currentUserId) return;
-
-    await supabase
-      .from("organization_chat_typing")
-      .upsert({
-        organization_id: selectedOrgId,
-        user_id: currentUserId,
-        last_typed_at: new Date().toISOString()
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
       });
+    }
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedOrgId) return;
+    if (!newMessage.trim() || !selectedOrgId || selectedOrgId.startsWith("11111111-")) return;
+    const trimmed = newMessage.trim();
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: newMsg, error } = await supabase
-        .from("organization_chat")
-        .insert({
-          organization_id: selectedOrgId,
-          user_id: user.id,
-          message: newMessage.trim(),
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // If replying, create reply link
-      if (replyingTo && newMsg) {
-        await supabase.from("organization_chat_replies").insert({
-          message_id: newMsg.id,
-          reply_to_message_id: replyingTo.id
+      try {
+        sendSocketMessage({
+          organizationId: selectedOrgId,
+          message: trimmed,
         });
+        setNewMessage("");
+      } catch (socketError) {
+        console.warn('WebSocket send failed, using REST API:', socketError);
+        await api.chat.send({
+          organizationId: selectedOrgId,
+          message: trimmed,
+        });
+        toast({
+          title: "Success",
+          description: "Message sent",
+        });
+        setNewMessage("");
+        fetchChatMessages(selectedOrgId);
       }
-
-      setNewMessage("");
-      setReplyingTo(null);
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const editMessage = async () => {
-    if (!editingMessage || !editMessageText.trim()) return;
-
-    try {
-      const { error } = await supabase
-        .from("organization_chat")
-        .update({
-          message: editMessageText.trim(),
-          edited_at: new Date().toISOString()
-        })
-        .eq("id", editingMessage.id);
-
-      if (error) throw error;
-
-      setEditingMessage(null);
-      setEditMessageText("");
-      toast({
-        title: "Success",
-        description: "Message updated",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const deleteMessage = async (messageId: string) => {
-    try {
-      const { error } = await supabase
-        .from("organization_chat")
-        .update({ is_deleted: true, message: "[Deleted]" })
-        .eq("id", messageId);
-
-      if (error) throw error;
-
-      toast({
-        title: "Success",
-        description: "Message deleted",
-      });
     } catch (error: any) {
       toast({
         title: "Error",
@@ -473,84 +344,35 @@ const Team = () => {
   };
 
   const addReaction = async (messageId: string, emoji: string) => {
-    if (!currentUserId) return;
+    if (!selectedOrgId || selectedOrgId.startsWith("11111111-")) return;
 
     try {
-      const { error } = await supabase
-        .from("organization_chat_reactions")
-        .insert({
-          message_id: messageId,
-          user_id: currentUserId,
-          reaction: emoji
-        });
-
-      if (error) throw error;
+      await api.chat.react({ messageId, reaction: emoji });
+      if (selectedOrgId) {
+        fetchChatMessages(selectedOrgId);
+      }
       setShowEmojiPicker(null);
     } catch (error: any) {
-      if (error.code === '23505') { // Duplicate
-        // Remove reaction
-        await supabase
-          .from("organization_chat_reactions")
-          .delete()
-          .eq("message_id", messageId)
-          .eq("user_id", currentUserId)
-          .eq("reaction", emoji);
-      }
+      toast({
+        title: "Error",
+        description: error.message || "Failed to react",
+        variant: "destructive",
+      });
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !selectedOrgId || !currentUserId) return;
-
-    setUploadingFile(true);
+  const deleteMessage = async (id: string) => {
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${currentUserId}/${Date.now()}.${fileExt}`;
-      
-      const { error: uploadError } = await supabase.storage
-        .from('chat-attachments')
-        .upload(fileName, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('chat-attachments')
-        .getPublicUrl(fileName);
-
-      // Create message with attachment
-      const { data: newMsg, error: msgError } = await supabase
-        .from("organization_chat")
-        .insert({
-          organization_id: selectedOrgId,
-          user_id: currentUserId,
-          message: file.name,
-        })
-        .select()
-        .single();
-
-      if (msgError) throw msgError;
-
-      await supabase.from("organization_chat_attachments").insert({
-        message_id: newMsg.id,
-        file_url: publicUrl,
-        file_name: file.name,
-        file_type: file.type,
-        file_size: file.size
-      });
-
-      toast({
-        title: "Success",
-        description: "File uploaded",
-      });
+      await api.chat.delete(id);
+      if (selectedOrgId) {
+        fetchChatMessages(selectedOrgId);
+      }
     } catch (error: any) {
       toast({
         title: "Error",
         description: error.message,
         variant: "destructive",
       });
-    } finally {
-      setUploadingFile(false);
     }
   };
 
@@ -558,24 +380,16 @@ const Team = () => {
     if (!newIdeaTitle.trim() || !selectedOrgId) return;
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { error } = await supabase.from("organization_ideas").insert({
-        organization_id: selectedOrgId,
-        user_id: user.id,
+      await api.ideas.create({
+        organizationId: selectedOrgId,
         title: newIdeaTitle.trim(),
-        description: newIdeaDescription.trim() || null,
+        description: newIdeaDescription.trim() || undefined,
       });
-
-      if (error) throw error;
 
       setNewIdeaTitle("");
       setNewIdeaDescription("");
-      toast({
-        title: "Success",
-        description: "Idea posted successfully",
-      });
+      toast({ title: "Idea submitted!" });
+      fetchIdeas(selectedOrgId);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -584,257 +398,228 @@ const Team = () => {
       });
     }
   };
-
-  const updateIdea = async () => {
-    if (!editingIdea || !editIdeaTitle.trim()) return;
-
-    try {
-      const { error } = await supabase
-        .from("organization_ideas")
-        .update({
-          title: editIdeaTitle.trim(),
-          description: editIdeaDescription.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", editingIdea.id);
-
-      if (error) throw error;
-
-      setEditingIdea(null);
-      setEditIdeaTitle("");
-      setEditIdeaDescription("");
-      toast({
-        title: "Success",
-        description: "Idea updated successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const deleteIdea = async (ideaId: string) => {
-    try {
-      const { error } = await supabase
-        .from("organization_ideas")
-        .delete()
-        .eq("id", ideaId);
-
-      if (error) throw error;
-
-      toast({
-        title: "Success",
-        description: "Idea deleted successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const startEditIdea = (idea: Idea) => {
-    setEditingIdea(idea);
-    setEditIdeaTitle(idea.title);
-    setEditIdeaDescription(idea.description || "");
-  };
-
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName?.[0] || ""}${lastName?.[0] || ""}`.toUpperCase();
-  };
-
-  const commonEmojis = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading team data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <Card className="max-w-md">
+          <CardContent className="pt-6">
+            <p className="text-destructive text-center">{error}</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen max-h-screen overflow-y-auto p-6 pb-24">
-      <div className="container max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center gap-3">
-          <Users className="h-8 w-8 text-primary" />
-          <div>
-            <h1 className="text-3xl font-bold">Team</h1>
-            <p className="text-muted-foreground">
-              Collaboration, leaderboard, and team communication
-            </p>
+    <div className="min-h-screen max-h-screen overflow-y-auto pb-20 relative">
+      <WinterBackground />
+      <div className="container max-w-6xl mx-auto p-6 space-y-6 relative z-10">
+        <div className="flex items-center justify-between animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg">
+              <Users className="h-6 w-6 text-white" />
+            </div>
+            <div className="flex flex-col">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
+                {t("teamPage.title", { defaultValue: "Team" })}
+              </h1>
+              <p className="text-slate-600 dark:text-slate-400">
+                {t("teamPage.subtitle", {
+                  defaultValue: "Collaboration, leaderboard, and team communication",
+                })}
+              </p>
+            </div>
           </div>
+          <Badge variant="outline" className="text-base px-4 py-2 bg-white dark:bg-slate-800 shadow-sm">
+            <Users className="h-4 w-4 mr-2" />
+            {teamMembers.length} {t("teamPage.members", { defaultValue: "Members" })}
+          </Badge>
         </div>
 
-        <Tabs defaultValue="leaderboard" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="leaderboard">
-              <Trophy className="h-4 w-4 mr-2" />
-              Leaderboard
+        <Tabs defaultValue="leaderboard" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-3 h-14 p-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border-2">
+            <TabsTrigger value="leaderboard" className="flex items-center gap-2 rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:to-orange-500 data-[state=active]:text-white transition-all">
+              <Trophy className="h-4 w-4" />
+              {t("teamPage.tabs.leaderboard", { defaultValue: "Leaderboard" })}
             </TabsTrigger>
-            <TabsTrigger value="chat">
-              <MessageSquare className="h-4 w-4 mr-2" />
-              Chat
+            <TabsTrigger value="chat" className="flex items-center gap-2 rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white transition-all">
+              <MessageSquare className="h-4 w-4" />
+              {t("teamPage.tabs.chat", { defaultValue: "Chat" })}
             </TabsTrigger>
-            <TabsTrigger value="ideas">
-              <Lightbulb className="h-4 w-4 mr-2" />
-              Ideas
+            <TabsTrigger value="ideas" className="flex items-center gap-2 rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white transition-all">
+              <Lightbulb className="h-4 w-4" />
+              {t("teamPage.tabs.ideas", { defaultValue: "Ideas" })}
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="leaderboard">
-            <Card>
-              <CardHeader>
-                <CardTitle>Team Leaderboard</CardTitle>
+          {/* Leaderboard Tab */}
+          <TabsContent value="leaderboard" className="space-y-4 animate-fade-in">
+            <Card className="border-0 shadow-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20">
+              <CardHeader className="border-b border-white/20 bg-gradient-to-br from-amber-50/80 to-orange-50/80 dark:from-amber-950/30 dark:to-orange-950/30 backdrop-blur-sm">
+                <CardTitle className="flex items-center gap-3 text-2xl">
+                  <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg">
+                    <Trophy className="h-6 w-6 text-white" />
+                  </div>
+                  <span className="bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
+                    {t("teamPage.leaderboardTitle", { defaultValue: "Team Leaderboard" })}
+                  </span>
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {teamMembers.map((member, index) => (
+              <CardContent className="pt-6 space-y-4">
+                {teamMembers.length === 0 ? (
+                  <div className="py-16 text-center">
+                    <Trophy className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-20" />
+                    <p className="text-muted-foreground text-lg">
+                      {t("teamPage.leaderboard.empty", { defaultValue: "No team members yet" })}
+                    </p>
+                  </div>
+                ) : (
+                  teamMembers.map((member, index) => (
                     <div
                       key={member.id}
-                      className="flex items-center gap-4 p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
-                      onClick={() => navigate(`/member/${member.id}`)}
+                      className="flex items-center gap-4 p-5 rounded-2xl border-2 hover:border-primary/50 hover:shadow-xl transition-all duration-300 bg-gradient-to-r from-white to-slate-50 dark:from-slate-800 dark:to-slate-900 animate-slide-in"
+                      style={{ animationDelay: `${index * 50}ms` }}
                     >
-                      <div className="w-8 text-center font-bold text-muted-foreground">
-                        #{index + 1}
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className="relative">
+                          {index === 0 && (
+                            <Crown className="absolute -top-2 -right-2 h-5 w-5 text-amber-500" />
+                          )}
+                          {index === 1 && (
+                            <Medal className="absolute -top-2 -right-2 h-5 w-5 text-slate-400" />
+                          )}
+                          {index === 2 && (
+                            <Star className="absolute -top-2 -right-2 h-5 w-5 text-amber-700" />
+                          )}
+                          <div className="text-2xl font-bold text-slate-400 w-8 text-center">
+                            #{index + 1}
+                          </div>
+                        </div>
+
+                        <Avatar className="h-12 w-12">
+                          <AvatarImage src={member.avatar_url || undefined} />
+                          <AvatarFallback>
+                            {member.first_name[0]}{member.last_name[0]}
+                          </AvatarFallback>
+                        </Avatar>
+
+                        <div className="flex-1">
+                          <div className="font-semibold text-lg">
+                            {member.first_name} {member.last_name}
+                          </div>
+                          <div className="text-sm text-muted-foreground">{member.position}</div>
+                        </div>
                       </div>
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={member.avatar_url || ""} />
-                        <AvatarFallback>
-                          {getInitials(member.first_name, member.last_name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <p className="font-medium">
-                          {member.first_name} {member.last_name}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {member.position || "Team Member"}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <Badge variant="secondary">
-                          {member.completed_tasks}/{member.total_tasks} completed
-                        </Badge>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {member.total_tasks > 0
-                            ? Math.round((member.completed_tasks / member.total_tasks) * 100)
-                            : 0}% completion rate
-                        </p>
+
+                      <div className="flex items-center gap-4">
+                        <div className="text-center">
+                          <div className="text-sm text-muted-foreground">Completed</div>
+                          <div className="text-xl font-bold text-green-600">
+                            {member.completed_tasks}
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-sm text-muted-foreground">Total</div>
+                          <div className="text-xl font-bold">{member.total_tasks}</div>
+                        </div>
+                        <div className="text-center min-w-[80px]">
+                          <div className="text-sm text-muted-foreground">Rate</div>
+                          <div className="text-xl font-bold text-primary">
+                            {Math.round(member.completion_rate)}%
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  ))
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="chat">
-            <Card className="border-none shadow-none">
-              <CardContent className="p-0">
-                <div className="flex flex-col h-[600px] bg-card rounded-lg border">
-                  {/* Chat Header */}
-                  <div className="p-4 border-b bg-muted/30">
-                    <CardTitle className="text-lg">Group Chat</CardTitle>
+          {/* Chat Tab */}
+          <TabsContent value="chat" className="space-y-4 animate-fade-in">
+            <Card className="h-[650px] flex flex-col border-0 shadow-2xl overflow-hidden bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20">
+              <CardHeader className="border-b border-white/20 bg-gradient-to-br from-blue-50/80 to-indigo-50/80 dark:from-blue-950/30 dark:to-indigo-950/30 backdrop-blur-sm">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-3 text-2xl">
+                    <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 shadow-lg">
+                      <MessageSquare className="h-6 w-6 text-white" />
+                    </div>
+                    <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                      {t("teamPage.chat.sectionTitle", { defaultValue: "Team Chat" })}
+                    </span>
+                  </CardTitle>
+                  <Badge variant="secondary" className="flex items-center gap-1.5 px-3 py-1">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm">{teamMembers.length} {teamMembers.length === 1 ? 'member' : 'members'} online</span>
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-slate-50/50 to-white dark:from-slate-900/50 dark:to-slate-950">
+                {chatMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                    <MessageSquare className="h-16 w-16 text-muted-foreground opacity-20 mb-4" />
+                    <p className="text-muted-foreground text-lg">
+                      {t("teamPage.chat.empty", { defaultValue: "No messages yet. Start the conversation!" })}
+                    </p>
                   </div>
-                  
-                  {/* Messages Area */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/10">
-                    {chatMessages.map((msg) => {
-                      const isOwnMessage = currentUserId === msg.user_id;
-                      
-                      return (
-                        <div key={msg.id} className={`flex gap-2 ${isOwnMessage ? 'flex-row-reverse' : 'flex-row'}`}>
-                          {!isOwnMessage && (
-                            <Avatar className="h-8 w-8 flex-shrink-0 mt-1">
-                              <AvatarImage src={msg.profiles.avatar_url || ""} />
-                              <AvatarFallback className="text-xs">
-                                {getInitials(msg.profiles.first_name, msg.profiles.last_name)}
-                              </AvatarFallback>
-                            </Avatar>
-                          )}
-                          <div className={`flex flex-col max-w-[70%] ${isOwnMessage ? 'items-end' : 'items-start'}`}>
-                            {!isOwnMessage && (
-                              <p className="text-xs font-medium text-primary px-2 mb-1">
-                                {msg.profiles.first_name} {msg.profiles.last_name}
-                              </p>
-                            )}
-                            
-                            {/* Reply preview */}
-                            {msg.reply_to && (
-                              <div className="text-xs bg-muted/50 rounded px-2 py-1 mb-1 border-l-2 border-primary">
-                                <span className="font-medium">{msg.reply_to.profiles?.first_name}</span>: {msg.reply_to.message.substring(0, 50)}...
-                              </div>
-                            )}
-                            
-                            <div className="relative group">
-                              <div className={`rounded-2xl px-4 py-2 ${
-                                isOwnMessage 
-                                  ? 'bg-primary text-primary-foreground rounded-tr-sm' 
-                                  : 'bg-card border rounded-tl-sm'
-                              }`}>
-                                <p className="text-sm break-words">{msg.message}</p>
-                                
-                                {/* Attachments */}
-                                {msg.attachments && msg.attachments.length > 0 && (
-                                  <div className="mt-2 space-y-2">
-                                    {msg.attachments.map((att) => (
-                                      <a 
-                                        key={att.id}
-                                        href={att.file_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-2 p-2 bg-muted/50 rounded hover:bg-muted"
-                                      >
-                                        {att.file_type.startsWith('image/') ? <Image className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
-                                        <span className="text-xs">{att.file_name}</span>
-                                      </a>
-                                    ))}
-                                  </div>
-                                )}
-                                
-                                {msg.edited_at && (
-                                  <span className="text-xs opacity-70">(edited)</span>
-                                )}
-                              </div>
-                              
-                              {/* Message actions */}
-                              {!msg.is_deleted && (
-                                <div className={`absolute ${isOwnMessage ? 'left-0' : 'right-0'} top-0 opacity-0 group-hover:opacity-100 transition-opacity`}>
-                                  <div className="flex gap-1 bg-background border rounded-lg p-1 shadow-lg">
-                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setReplyingTo(msg)}>
-                                      <Reply className="h-3 w-3" />
-                                    </Button>
-                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setShowEmojiPicker(msg.id)}>
-                                      <Smile className="h-3 w-3" />
-                                    </Button>
-                                    {isOwnMessage && (
-                                      <>
-                                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setEditingMessage(msg); setEditMessageText(msg.message); }}>
-                                          <Pencil className="h-3 w-3" />
-                                        </Button>
-                                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => deleteMessage(msg.id)}>
-                                          <Trash2 className="h-3 w-3" />
-                                        </Button>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                              
-                              {/* Emoji picker */}
+                ) : (
+                  chatMessages.map((msg, index) => {
+                    const senderName = msg.user
+                      ? `${msg.user.firstName} ${msg.user.lastName}`
+                      : "User";
+
+                    return (
+                      <div key={msg.id} className="flex items-start gap-3 animate-slide-in" style={{ animationDelay: `${index * 30}ms` }}>
+                        <Avatar className="h-10 w-10 ring-2 ring-white dark:ring-slate-800 shadow-md">
+                          <AvatarImage src={msg.user?.avatarUrl || undefined} />
+                          <AvatarFallback className="bg-gradient-to-br from-primary to-primary/70 text-white font-semibold">
+                            {senderName[0]}
+                          </AvatarFallback>
+                        </Avatar>
+
+                        <div className="flex-1 max-w-[80%]">
+                          <div className="flex items-baseline gap-2 mb-1">
+                            <span className="font-semibold text-sm text-slate-900 dark:text-white">{senderName}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatRelativeTime(new Date(msg.createdAt), i18n.language)}
+                            </span>
+                          </div>
+                          <div className="group relative">
+                            <div className="bg-white dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 border-2 border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow">
+                              <p className="text-sm text-slate-900 dark:text-white leading-relaxed">{msg.message}</p>
+                            </div>
+
+                            {/* Reactions */}
+                            <div className="flex items-center gap-2 mt-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => setShowEmojiPicker(msg.id)}
+                              >
+                                <Smile className="h-4 w-4" />
+                              </Button>
+
                               {showEmojiPicker === msg.id && (
-                                <div className="absolute z-10 bg-background border rounded-lg p-2 shadow-lg flex gap-1">
-                                  {commonEmojis.map(emoji => (
+                                <div className="flex gap-1 bg-white dark:bg-slate-800 border-2 rounded-xl p-2 shadow-xl animate-scale-in">
+                                  {emojiOptions.map((emoji) => (
                                     <button
                                       key={emoji}
                                       onClick={() => addReaction(msg.id, emoji)}
-                                      className="hover:scale-125 transition-transform text-lg"
+                                      className="hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg p-2 text-xl transition-all hover:scale-125"
                                     >
                                       {emoji}
                                     </button>
@@ -842,202 +627,114 @@ const Team = () => {
                                 </div>
                               )}
                             </div>
-                            
-                            {/* Reactions */}
-                            {msg.reactions && msg.reactions.length > 0 && (
-                              <div className="flex gap-1 mt-1 flex-wrap">
-                                {msg.reactions.map((reaction, idx) => (
-                                  <Badge key={idx} variant="secondary" className="text-xs cursor-pointer" onClick={() => addReaction(msg.id, reaction.reaction)}>
-                                    {reaction.reaction} {reaction.count}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                            
-                            <p className="text-xs text-muted-foreground px-2 mt-1">
-                              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </p>
                           </div>
                         </div>
-                      );
-                    })}
-                    <div ref={chatEndRef} />
-                  </div>
-                  
-                  {/* Typing indicator */}
-                  {typingUsers.size > 0 && (
-                    <div className="px-4 py-2 text-xs text-muted-foreground">
-                      Someone is typing...
-                    </div>
-                  )}
-                  
-                  {/* Reply preview */}
-                  {replyingTo && (
-                    <div className="px-4 py-2 bg-muted/30 border-t flex items-center justify-between">
-                      <div className="text-sm">
-                        <span className="font-medium">Replying to:</span> {replyingTo.message.substring(0, 50)}...
                       </div>
-                      <Button size="sm" variant="ghost" onClick={() => setReplyingTo(null)}>Cancel</Button>
-                    </div>
-                  )}
-                  
-                  {/* Input Area */}
-                  <div className="p-4 border-t bg-background flex gap-2">
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileUpload}
-                      className="hidden"
-                      accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
-                    />
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadingFile}
-                    >
-                      <Paperclip className="h-4 w-4" />
-                    </Button>
-                    <Input
-                      placeholder="Type a message..."
-                      value={newMessage}
-                      onChange={(e) => {
-                        setNewMessage(e.target.value);
-                        handleTyping();
-                      }}
-                      onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-                      className="flex-1"
-                    />
-                    <Button onClick={sendMessage} disabled={!newMessage.trim()}>
-                      <Send className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
+                    );
+                  })
+                )}
+                <div ref={chatEndRef} />
               </CardContent>
+              <div className="border-t-2 p-4 bg-white dark:bg-slate-800">
+                <div className="flex gap-3">
+                  <Input
+                    placeholder={t("teamPage.chat.placeholder", { defaultValue: "Type a message..." })}
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
+                    className="flex-1 h-12 px-4 rounded-xl border-2 focus:border-primary"
+                  />
+                  <Button
+                    onClick={sendMessage}
+                    disabled={!newMessage.trim()}
+                    className="h-12 px-6 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 shadow-lg hover:shadow-xl transition-all"
+                  >
+                    <Send className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
             </Card>
           </TabsContent>
 
-          <TabsContent value="ideas">
-            <Card>
-              <CardHeader>
-                <CardTitle>Team Ideas & Suggestions</CardTitle>
+          {/* Ideas Tab */}
+          <TabsContent value="ideas" className="space-y-4 animate-fade-in">
+            <Card className="border-0 shadow-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20">
+              <CardHeader className="border-b border-white/20 bg-gradient-to-br from-purple-50/80 to-pink-50/80 dark:from-purple-950/30 dark:to-pink-950/30 backdrop-blur-sm">
+                <CardTitle className="flex items-center gap-3 text-2xl">
+                  <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 shadow-lg">
+                    <Lightbulb className="h-6 w-6 text-white" />
+                  </div>
+                  <span className="bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                    {t("teamPage.ideas.title", { defaultValue: "Team Ideas" })}
+                  </span>
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-3">
-                  <Input
-                    placeholder="Idea title"
-                    value={newIdeaTitle}
-                    onChange={(e) => setNewIdeaTitle(e.target.value)}
-                  />
-                  <Textarea
-                    placeholder="Describe your idea..."
-                    value={newIdeaDescription}
-                    onChange={(e) => setNewIdeaDescription(e.target.value)}
-                  />
-                  <Button onClick={sendIdea} disabled={!newIdeaTitle.trim()}>
-                    Post Idea
-                  </Button>
+              <CardContent className="pt-6 space-y-6">
+                {/* Add Idea Form */}
+                <div className="p-6 rounded-2xl border border-purple-300/50 dark:border-purple-700/50 bg-gradient-to-br from-purple-50/60 to-pink-50/60 dark:from-purple-950/40 dark:to-pink-950/40 shadow-lg backdrop-blur-sm">
+                  <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
+                    <Plus className="h-5 w-5 text-purple-600" />
+                    Share Your Idea
+                  </h3>
+                  <div className="space-y-3">
+                    <Input
+                      placeholder="Idea title..."
+                      value={newIdeaTitle}
+                      onChange={(e) => setNewIdeaTitle(e.target.value)}
+                    />
+                    <Textarea
+                      placeholder="Describe your idea..."
+                      value={newIdeaDescription}
+                      onChange={(e) => setNewIdeaDescription(e.target.value)}
+                      rows={3}
+                    />
+                    <Button onClick={sendIdea} disabled={!newIdeaTitle.trim()} className="w-full">
+                      <Lightbulb className="h-4 w-4 mr-2" />
+                      Submit Idea
+                    </Button>
+                  </div>
                 </div>
 
-                <div className="space-y-4">
-                  {ideas.map((idea) => (
-                    <Card key={idea.id} className="p-4">
-                      <div className="flex items-start gap-3">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={idea.profiles.avatar_url || ""} />
-                          <AvatarFallback>
-                            {getInitials(idea.profiles.first_name, idea.profiles.last_name)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between">
+                {/* Ideas List */}
+                {ideas.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">No ideas yet. Be the first!</p>
+                ) : (
+                  <div className="space-y-4">
+                    {ideas.map((idea) => (
+                      <div
+                        key={idea.id}
+                        className="p-6 rounded-xl border border-white/30 dark:border-slate-700/30 bg-white/60 dark:bg-slate-800/60 hover:bg-white/80 dark:hover:bg-slate-800/80 hover:border-purple-300/50 transition-all backdrop-blur-sm shadow-lg"
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={idea.user?.avatarUrl || undefined} />
+                              <AvatarFallback>
+                                {idea.user?.firstName[0]}{idea.user?.lastName[0]}
+                              </AvatarFallback>
+                            </Avatar>
                             <div>
-                              <p className="font-medium">{idea.title}</p>
-                              <p className="text-sm text-muted-foreground">
-                                by {idea.profiles.first_name} {idea.profiles.last_name}
-                              </p>
+                              <div className="font-semibold">
+                                {idea.user?.firstName} {idea.user?.lastName}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {formatRelativeTime(new Date(idea.createdAt), i18n.language)}
+                              </div>
                             </div>
-                            {idea.user_id === currentUserId && (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <MoreVertical className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => startEditIdea(idea)}>
-                                    <Pencil className="h-4 w-4 mr-2" />
-                                    Edit
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => deleteIdea(idea.id)} className="text-destructive">
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
                           </div>
-                          {idea.description && (
-                            <p className="text-sm mt-2">{idea.description}</p>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-2">
-                            {new Date(idea.created_at).toLocaleDateString()}
-                          </p>
                         </div>
+                        <h4 className="text-lg font-semibold mb-2">{idea.title}</h4>
+                        {idea.description && (
+                          <p className="text-sm text-muted-foreground">{idea.description}</p>
+                        )}
                       </div>
-                    </Card>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
-
-        {/* Edit Message Dialog */}
-        <Dialog open={!!editingMessage} onOpenChange={() => setEditingMessage(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Message</DialogTitle>
-            </DialogHeader>
-            <Textarea
-              value={editMessageText}
-              onChange={(e) => setEditMessageText(e.target.value)}
-            />
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditingMessage(null)}>Cancel</Button>
-              <Button onClick={editMessage}>Save</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Edit Idea Dialog */}
-        <Dialog open={!!editingIdea} onOpenChange={() => setEditingIdea(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Idea</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label>Title</Label>
-                <Input
-                  value={editIdeaTitle}
-                  onChange={(e) => setEditIdeaTitle(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label>Description</Label>
-                <Textarea
-                  value={editIdeaDescription}
-                  onChange={(e) => setEditIdeaDescription(e.target.value)}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditingIdea(null)}>Cancel</Button>
-              <Button onClick={updateIdea}>Save Changes</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </div>
   );

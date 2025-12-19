@@ -3,7 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authState } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle2 } from "lucide-react";
 
@@ -27,44 +28,36 @@ export default function AgreementConsentDialog() {
 
   const checkForUpdatedAgreement = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      // Check if user is logged in first
+      if (!authState.isLoggedIn()) return;
 
       // Check if user is an employee
-      const { data: roleData } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .single();
-
+      const roleData = await api.users.getMyRole();
       if (roleData?.role !== "employee") return;
 
       // Get user's organization memberships
-      const { data: memberships, error: memberError } = await supabase
-        .from("organization_members")
-        .select("organization_id, agreement_version_accepted")
-        .eq("user_id", user.id);
+      const memberships = await api.organizations.myMemberships();
+      if (!memberships?.length) return;
 
-      if (memberError || !memberships || memberships.length === 0) return;
+      const match = memberships.find((m: any) => {
+        const org = m.organization;
+        if (!org?.agreementText) return false;
+        const orgVersion = org.agreementVersion || 0;
+        const accepted = m.agreementVersionAccepted || 0;
+        return orgVersion > accepted;
+      });
 
-      // Check if any organization has updated agreement
-      for (const membership of memberships) {
-        const { data: org, error: orgError } = await supabase
-          .from("organizations")
-          .select("id, name, agreement_text, agreement_version")
-          .eq("id", membership.organization_id)
-          .single();
+      if (!match?.organization) return;
 
-        if (orgError || !org || !org.agreement_text) continue;
-
-        // If organization has updated agreement and user hasn't accepted latest version
-        if (org.agreement_version > (membership.agreement_version_accepted || 0)) {
-          setOrganization(org);
-          setOpen(true);
-          break;
-        }
-      }
-    } catch (error: any) {
+      const org = match.organization;
+      setOrganization({
+        id: org.id,
+        name: org.name,
+        agreement_text: org.agreementText,
+        agreement_version: org.agreementVersion || 0,
+      });
+      setOpen(true);
+    } catch (error) {
       console.error("Error checking for updated agreements:", error);
     }
   };
@@ -74,20 +67,9 @@ export default function AgreementConsentDialog() {
 
     try {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Update member's agreement acceptance
-      const { error } = await supabase
-        .from("organization_members")
-        .update({
-          agreement_accepted_at: new Date().toISOString(),
-          agreement_version_accepted: organization.agreement_version,
-        })
-        .eq("user_id", user.id)
-        .eq("organization_id", organization.id);
-
-      if (error) throw error;
+      await api.organizations.acceptAgreement(organization.id, {
+        agreementVersion: organization.agreement_version,
+      });
 
       toast({
         title: "Success",
@@ -97,10 +79,11 @@ export default function AgreementConsentDialog() {
       setOpen(false);
       // Check if there are more updated agreements
       setTimeout(checkForUpdatedAgreement, 500);
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to accept agreement";
       toast({
         title: "Error",
-        description: error.message,
+        description: message,
         variant: "destructive",
       });
     } finally {

@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { CheckCircle2, Clock, ListTodo, Timer } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface ProfileTaskStatsProps {
   userId?: string;
 }
 
 export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
+  const { t } = useTranslation();
   const [stats, setStats] = useState({
     totalCompleted: 0,
     totalReceived: 0,
@@ -23,34 +25,29 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
 
   const fetchStats = async () => {
     try {
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-      if (!currentUser) return;
-      
-      const targetUserId = userId || currentUser.id;
+      const me = await api.users.me();
+      const targetUserId = userId || me.id;
 
-      // Get tasks assigned to the target user
-      const { data: assignments } = await supabase
-        .from("task_assignments")
-        .select("task_id")
-        .eq("user_id", targetUserId);
+      let tasks: any[] = [];
+      if (targetUserId === me.id) {
+        tasks = await api.tasks.list({ all: false });
+      } else {
+        const memberships = await api.organizations.myMemberships();
+        const orgIds = Array.from(new Set((memberships || []).map((m: any) => m.organizationId)));
+        const orgTasks = await Promise.all(orgIds.map((orgId) => api.tasks.list({ organizationId: orgId, all: true })));
+        tasks = orgTasks.flat().filter((t: any) => (t.assignments || []).some((a: any) => a.userId === targetUserId));
+      }
 
-      const taskIds = assignments?.map(a => a.task_id) || [];
-
-      const { data: myTasks } = await supabase
-        .from("tasks")
-        .select("*")
-        .in("id", taskIds);
-
-      if (!myTasks) return;
+      const myTasks = tasks || [];
 
       const completed = myTasks.filter(t => t.status === "completed");
       const inProgress = myTasks.filter(t => t.status !== "completed");
 
       // Calculate total hours spent (from started_at to actual_completed_at for completed tasks)
       const totalHours = completed.reduce((sum, task) => {
-        if (task.started_at && task.actual_completed_at) {
-          const startTime = new Date(task.started_at).getTime();
-          const endTime = new Date(task.actual_completed_at).getTime();
+        if (task.startedAt && task.actualCompletedAt) {
+          const startTime = new Date(task.startedAt).getTime();
+          const endTime = new Date(task.actualCompletedAt).getTime();
           const hours = (endTime - startTime) / (1000 * 60 * 60);
           return sum + hours;
         }
@@ -71,8 +68,8 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
   };
 
   const pieData = [
-    { name: "Completed", value: stats.totalCompleted, color: "#22C55E" },
-    { name: "In Progress", value: stats.totalInProgress, color: "#FACC15" },
+    { name: t("profileStats.completed"), value: stats.totalCompleted, color: "#22C55E" },
+    { name: t("profileStats.inProgress"), value: stats.totalInProgress, color: "#FACC15" },
   ];
 
   if (loading) {
@@ -90,7 +87,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border-blue-500/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Received</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("profileStats.totalReceived")}</CardTitle>
             <ListTodo className="h-5 w-5 text-blue-500" />
           </CardHeader>
           <CardContent>
@@ -100,7 +97,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
 
         <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completed</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("profileStats.completed")}</CardTitle>
             <CheckCircle2 className="h-5 w-5 text-green-500" />
           </CardHeader>
           <CardContent>
@@ -110,7 +107,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
 
         <Card className="bg-gradient-to-br from-amber-500/10 to-amber-600/5 border-amber-500/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">In Progress</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("profileStats.inProgress")}</CardTitle>
             <Clock className="h-5 w-5 text-amber-500" />
           </CardHeader>
           <CardContent>
@@ -120,7 +117,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
 
         <Card className="bg-gradient-to-br from-purple-500/10 to-purple-600/5 border-purple-500/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Hours Spent</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("profileStats.hoursSpent")}</CardTitle>
             <Timer className="h-5 w-5 text-purple-500" />
           </CardHeader>
           <CardContent>
@@ -131,7 +128,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Task Distribution</CardTitle>
+          <CardTitle>{t("profileStats.taskDistribution")}</CardTitle>
         </CardHeader>
         <CardContent>
           {stats.totalReceived > 0 ? (
@@ -157,7 +154,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
             </ResponsiveContainer>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
-              No tasks received yet
+              {t("profileStats.noTasks")}
             </div>
           )}
         </CardContent>

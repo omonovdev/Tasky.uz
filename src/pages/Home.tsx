@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authJwt, authState } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,8 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Calendar, Bell, Building2, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { OrganizationManager } from "@/components/OrganizationManager";
-import BottomNav from "@/components/BottomNav";
 import InvitationAcceptDialog from "@/components/InvitationAcceptDialog";
+import { useTranslation } from "react-i18next";
 
 interface Task {
   id: string;
@@ -39,8 +40,13 @@ const Home = () => {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   useEffect(() => {
+    if (!authState.isLoggedIn()) {
+      navigate("/auth");
+      return;
+    }
     fetchProfile();
     fetchUrgentTasks();
     fetchCreatedTasks();
@@ -49,17 +55,11 @@ const Home = () => {
 
   const fetchProfile = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
-
-      if (error) throw error;
-      if (data) setProfile(data);
+      const me = await api.users.me();
+      setProfile({
+        organization: me.organization ?? null,
+        position: me.position ?? null,
+      });
     } catch (error: any) {
       console.error("Error fetching profile:", error);
     }
@@ -67,22 +67,23 @@ const Home = () => {
 
   const fetchUrgentTasks = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const threeDaysFromNow = new Date();
       threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
 
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("*")
-        .eq("assigned_to", user.id)
-        .lte("deadline", threeDaysFromNow.toISOString())
-        .order("deadline", { ascending: true })
-        .limit(3);
-
-      if (error) throw error;
-      if (data) setUrgentTasks(data);
+      const tasks = await api.tasks.list({ all: false });
+      const urgent = (tasks || [])
+        .filter((t: any) => t.status !== "completed")
+        .filter((t: any) => new Date(t.deadline).getTime() <= threeDaysFromNow.getTime())
+        .sort((a: any, b: any) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
+        .slice(0, 3)
+        .map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description || "",
+          deadline: t.deadline,
+          status: t.status,
+        }));
+      setUrgentTasks(urgent);
     } catch (error: any) {
       console.error("Error fetching tasks:", error);
     }
@@ -103,26 +104,28 @@ const Home = () => {
       (date.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
     );
     
-    if (daysUntil === 0) return "Today";
-    if (daysUntil === 1) return "Tomorrow";
-    if (daysUntil < 0) return "Overdue";
-    return `${daysUntil} days`;
+    if (daysUntil === 0) return t("homePage.today");
+    if (daysUntil === 1) return t("homePage.tomorrow");
+    if (daysUntil < 0) return t("homePage.overdue");
+    return t("homePage.daysLeft", { count: daysUntil });
   };
 
   const fetchCreatedTasks = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("*")
-        .eq("assigned_by", user.id)
-        .order("created_at", { ascending: false })
-        .limit(5);
-
-      if (error) throw error;
-      if (data) setCreatedTasks(data);
+      const meId = authJwt.getUserId();
+      if (!meId) return;
+      const tasks = await api.tasks.list({ assignedById: meId });
+      const recent = (tasks || [])
+        .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 5)
+        .map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description || "",
+          deadline: t.deadline,
+          status: t.status,
+        }));
+      setCreatedTasks(recent);
     } catch (error: any) {
       console.error("Error fetching created tasks:", error);
     }
@@ -130,22 +133,17 @@ const Home = () => {
 
   const fetchOrganizations = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: memberships, error } = await supabase
-        .from("organization_members")
-        .select("organization_id, organizations(*)")
-        .eq("user_id", user.id);
-
-      if (error) throw error;
-      
-      if (memberships) {
-        const orgs = memberships
-          .map(m => m.organizations)
-          .filter(Boolean) as Organization[];
-        setOrganizations(orgs);
-      }
+      const memberships = await api.organizations.myMemberships();
+      const orgs = (memberships || [])
+        .map((m: any) => m.organization)
+        .filter(Boolean)
+        .map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          subheadline: o.subheadline || "",
+          photo_url: o.photoUrl || "",
+        }));
+      setOrganizations(orgs);
     } catch (error: any) {
       console.error("Error fetching organizations:", error);
     }
@@ -160,7 +158,7 @@ const Home = () => {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Building2 className="w-5 h-5 text-primary" />
-              My Organizations
+              {t("homePage.myOrganizations")}
             </h2>
           </div>
 
@@ -174,7 +172,7 @@ const Home = () => {
             onClick={() => navigate("/tasks")}
           >
             <Calendar className="w-5 h-5 mr-2" />
-            My Tasks
+            {t("homePage.myTasks")}
           </Button>
           <Button
             variant="outline"
@@ -182,14 +180,14 @@ const Home = () => {
             onClick={() => navigate("/dashboard")}
           >
             <Bell className="w-5 h-5 mr-2" />
-            Dashboard
+            {t("homePage.dashboard")}
           </Button>
         </div>
 
         {/* Tasks I Created */}
         {createdTasks.length > 0 && (
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Tasks I Created</h2>
+            <h2 className="text-xl font-semibold">{t("homePage.tasksICreated")}</h2>
             <div className="space-y-3">
               {createdTasks.map((task) => (
                 <Card
@@ -221,7 +219,7 @@ const Home = () => {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Bell className="w-5 h-5 text-accent" />
-              Urgent Tasks
+              {t("homePage.urgentTasks")}
             </h2>
             {urgentTasks.length > 0 && (
               <Badge variant="destructive">{urgentTasks.length}</Badge>
@@ -231,7 +229,7 @@ const Home = () => {
           {urgentTasks.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
-                No urgent tasks at the moment
+                {t("homePage.noUrgent")}
               </CardContent>
             </Card>
           ) : (
@@ -267,7 +265,7 @@ const Home = () => {
           )}
         </div>
       </div>
-      <BottomNav />
+   
     </div>
   );
 };

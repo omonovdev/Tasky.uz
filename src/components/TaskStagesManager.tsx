@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, CheckCircle2, Circle, Edit2, Trash2, ChevronUp, ChevronDown } from "lucide-react";
 
@@ -38,14 +38,17 @@ const TaskStagesManager = ({ taskId, isEmployeeView }: TaskStagesManagerProps) =
 
   const fetchStages = async () => {
     try {
-      const { data, error } = await supabase
-        .from("task_stages")
-        .select("*")
-        .eq("task_id", taskId)
-        .order("order_index", { ascending: true });
-
-      if (error) throw error;
-      setStages(data || []);
+      const task = await api.tasks.get(taskId);
+      const mapped: TaskStage[] = (task?.stages || [])
+        .map((s: any) => ({
+          id: s.id,
+          title: s.title,
+          description: s.description ?? null,
+          status: s.status,
+          order_index: s.orderIndex,
+        }))
+        .sort((a, b) => a.order_index - b.order_index);
+      setStages(mapped);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -68,17 +71,12 @@ const TaskStagesManager = ({ taskId, isEmployeeView }: TaskStagesManagerProps) =
     try {
       const maxOrder = stages.length > 0 ? Math.max(...stages.map(s => s.order_index)) : 0;
 
-      const { error } = await supabase
-        .from("task_stages")
-        .insert({
-          task_id: taskId,
-          title: newStageTitle,
-          description: newStageDescription,
-          order_index: maxOrder + 1,
-          status: "pending",
-        });
-
-      if (error) throw error;
+      await api.tasks.addStage(taskId, {
+        title: newStageTitle.trim(),
+        description: newStageDescription.trim() || undefined,
+        orderIndex: maxOrder + 1,
+        status: "pending",
+      });
 
       setNewStageTitle("");
       setNewStageDescription("");
@@ -100,12 +98,7 @@ const TaskStagesManager = ({ taskId, isEmployeeView }: TaskStagesManagerProps) =
 
   const updateStageStatus = async (stageId: string, newStatus: string) => {
     try {
-      const { error } = await supabase
-        .from("task_stages")
-        .update({ status: newStatus })
-        .eq("id", stageId);
-
-      if (error) throw error;
+      await api.tasks.updateStage(stageId, { status: newStatus });
 
       setStages(stages.map(stage =>
         stage.id === stageId ? { ...stage, status: newStatus } : stage
@@ -126,12 +119,7 @@ const TaskStagesManager = ({ taskId, isEmployeeView }: TaskStagesManagerProps) =
 
   const deleteStage = async (stageId: string) => {
     try {
-      const { error } = await supabase
-        .from("task_stages")
-        .delete()
-        .eq("id", stageId);
-
-      if (error) throw error;
+      await api.tasks.deleteStage(stageId);
 
       fetchStages();
 
@@ -150,15 +138,10 @@ const TaskStagesManager = ({ taskId, isEmployeeView }: TaskStagesManagerProps) =
 
   const updateStage = async (stageId: string) => {
     try {
-      const { error } = await supabase
-        .from("task_stages")
-        .update({
-          title: editTitle,
-          description: editDescription,
-        })
-        .eq("id", stageId);
-
-      if (error) throw error;
+      await api.tasks.updateStage(stageId, {
+        title: editTitle.trim(),
+        description: editDescription.trim() || undefined,
+      });
 
       setEditingStage(null);
       fetchStages();
@@ -187,18 +170,8 @@ const TaskStagesManager = ({ taskId, isEmployeeView }: TaskStagesManagerProps) =
       const stage = stages[stageIndex];
       const targetStage = stages[targetIndex];
 
-      // Swap order_index
-      const { error: error1 } = await supabase
-        .from("task_stages")
-        .update({ order_index: targetStage.order_index })
-        .eq("id", stage.id);
-
-      const { error: error2 } = await supabase
-        .from("task_stages")
-        .update({ order_index: stage.order_index })
-        .eq("id", targetStage.id);
-
-      if (error1 || error2) throw error1 || error2;
+      await api.tasks.updateStage(stage.id, { orderIndex: targetStage.order_index });
+      await api.tasks.updateStage(targetStage.id, { orderIndex: stage.order_index });
 
       fetchStages();
 

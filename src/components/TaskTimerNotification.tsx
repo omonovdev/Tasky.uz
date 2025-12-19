@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authJwt } from "@/lib/auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Clock, CheckCircle2 } from "lucide-react";
@@ -8,8 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 interface Task {
   id: string;
   title: string;
-  started_at: string;
-  estimated_completion_hours: number;
+  startedAt: string;
+  estimatedCompletionHours: number;
   status: string;
 }
 
@@ -19,11 +20,7 @@ export default function TaskTimerNotification() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const initUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setCurrentUserId(user?.id || null);
-    };
-    initUser();
+    setCurrentUserId(authJwt.getUserId());
   }, []);
 
   useEffect(() => {
@@ -31,33 +28,29 @@ export default function TaskTimerNotification() {
 
     const checkTimers = async () => {
       try {
-        // Get all in-progress tasks assigned to current user
-        const { data: assignments } = await supabase
-          .from("task_assignments")
-          .select("task_id")
-          .eq("user_id", currentUserId);
+        const tasks = await api.tasks.list({ all: false });
+        const inProgress = (tasks || [])
+          .filter((t: any) => t.status === "in_progress")
+          .filter((t: any) => Boolean(t.startedAt))
+          .filter((t: any) => typeof t.estimatedCompletionHours === "number");
 
-        const taskIds = assignments?.map(a => a.task_id) || [];
-
-        if (taskIds.length === 0) return;
-
-        const { data: tasks } = await supabase
-          .from("tasks")
-          .select("id, title, started_at, estimated_completion_hours, status")
-          .in("id", taskIds)
-          .eq("status", "in_progress")
-          .not("started_at", "is", null)
-          .not("estimated_completion_hours", "is", null);
-
-        if (!tasks || tasks.length === 0) return;
+        if (inProgress.length === 0) return;
 
         const now = new Date();
 
         // Check each task for expired timer
-        for (const task of tasks) {
-          const startedAt = new Date(task.started_at);
+        for (const rawTask of inProgress) {
+          const task: Task = {
+            id: rawTask.id,
+            title: rawTask.title,
+            startedAt: rawTask.startedAt,
+            estimatedCompletionHours: rawTask.estimatedCompletionHours,
+            status: rawTask.status,
+          };
+
+          const startedAt = new Date(task.startedAt);
           const estimatedEndTime = new Date(
-            startedAt.getTime() + task.estimated_completion_hours * 60 * 60 * 1000
+            startedAt.getTime() + task.estimatedCompletionHours * 60 * 1000
           );
 
           // Check if timer just expired (within last 2 minutes)
@@ -118,11 +111,10 @@ export default function TaskTimerNotification() {
         </DialogHeader>
         <div className="space-y-4">
           <div className="p-4 border rounded-lg bg-muted/50">
-            <h4 className="font-semibold mb-1">{expiredTask.title}</h4>
-            <p className="text-sm text-muted-foreground">
-              Estimated time: {expiredTask.estimated_completion_hours} hour
-              {expiredTask.estimated_completion_hours !== 1 ? "s" : ""}
-            </p>
+              <h4 className="font-semibold mb-1">{expiredTask.title}</h4>
+              <p className="text-sm text-muted-foreground">
+                Estimated time: {Math.floor(expiredTask.estimatedCompletionHours / 60)}h {expiredTask.estimatedCompletionHours % 60}m
+              </p>
           </div>
           <p className="text-sm">
             Is this task completed? If yes, click the button below to mark it as complete. 

@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Search, Building2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -30,17 +30,8 @@ export default function OrganizationSearch() {
   }, []);
 
   const fetchUserOrganizations = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data } = await supabase
-      .from('organization_members')
-      .select('organization_id')
-      .eq('user_id', user.id);
-
-    if (data) {
-      setUserOrganizations(data.map(m => m.organization_id));
-    }
+    const memberships = await api.organizations.myMemberships();
+    setUserOrganizations((memberships || []).map((m: any) => m.organizationId));
   };
 
   const handleSearch = async (query: string) => {
@@ -53,19 +44,22 @@ export default function OrganizationSearch() {
 
     setSearching(true);
     try {
-      const { data, error } = await supabase
-        .from('organizations')
-        .select('*')
-        .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
-        .limit(5);
-
-      if (error) throw error;
-      setSearchResults(data || []);
-    } catch (error: any) {
+      const results = await api.organizations.search(query);
+      const mapped: Organization[] = (results || []).map((org: any) => ({
+        id: org.id,
+        name: org.name,
+        subheadline: org.subheadline || org.subheadline,
+        description: org.description,
+        photo_url: org.photoUrl || "",
+        created_by: org.createdBy,
+      }));
+      setSearchResults(mapped.slice(0, 5));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Search failed";
       console.error("Search error:", error);
       toast({
         title: "Search Error",
-        description: error.message,
+        description: message,
         variant: "destructive",
       });
     } finally {

@@ -1,34 +1,63 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authJwt, authState } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Bell, CheckCheck, UserPlus, ClipboardList, Loader2 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { 
+  Bell, 
+  CheckCheck, 
+  UserPlus, 
+  ClipboardList, 
+  Loader2,
+  Building2,
+  User,
+  Clock,
+  Briefcase,
+  MessageSquare,
+  Check,
+  X,
+  Sparkles
+} from "lucide-react";
+import TaskReportsDialog from "@/components/TaskReportsDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useNotificationContext } from "@/components/NotificationContext";
+import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
+import { formatRelativeTime } from "@/lib/time";
+import WinterBackground from "@/components/WinterBackground";
 
 interface Notification {
   id: string;
-  type: "invitation" | "task";
+  type: "invitation" | "task" | "task_completed";
   message: string;
   read: boolean;
+  status?: string; // invitation status
   created_at: string;
   task_id?: string;
   invitation_id?: string;
   organization_name?: string;
   invitation_message?: string;
   organization_id?: string;
+  organization_photo?: string;
+  invited_by_name?: string;
+  invited_by_avatar?: string;
+  position?: string;
+  assignee_name?: string;
 }
 
 const Notifications = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { t, i18n } = useTranslation();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [loading, setLoading] = useState(true);
   const [processingInvitation, setProcessingInvitation] = useState<string | null>(null);
+  const [reportTaskId, setReportTaskId] = useState<string | null>(null);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
 
   const { setUnreadCount, refreshUnread } = useNotificationContext();
 
@@ -36,157 +65,121 @@ const Notifications = () => {
     checkAuth();
     fetchNotifications();
 
-    // Real-time subscriptions
-    const invitationsChannel = supabase
-      .channel("notifications-invitations")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "organization_invitations" },
-        () => {
-          console.log("🔔 Invitation change detected");
-          fetchNotifications();
-        }
-      )
-      .subscribe();
-
-    const tasksChannel = supabase
-      .channel("notifications-tasks")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "task_assignments" },
-        () => {
-          console.log("🔔 New task assignment detected");
-          fetchNotifications();
-        }
-      )
-      .subscribe();
-
-    // Listen for membership changes to trigger dashboard refresh
-    const membersChannel = supabase
-      .channel("notifications-members")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "organization_members" },
-        (payload) => {
-          console.log("✅ New membership detected:", payload);
-          // Trigger dashboard refresh via custom event
-          window.dispatchEvent(new CustomEvent("organization-joined", { 
-            detail: { organizationId: payload.new.organization_id }
-          }));
-        }
-      )
-      .subscribe();
+    const onFocus = () => fetchNotifications();
+    window.addEventListener("focus", onFocus);
 
     return () => {
-      supabase.removeChannel(invitationsChannel);
-      supabase.removeChannel(tasksChannel);
-      supabase.removeChannel(membersChannel);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) navigate("/auth");
+  const checkAuth = () => {
+    if (!authState.isLoggedIn()) navigate("/auth");
   };
 
   const fetchNotifications = async () => {
     try {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const userId = authJwt.getUserId();
+      if (!userId) {
+        navigate("/auth");
+        return;
+      }
 
       const notificationsList: Notification[] = [];
 
       // Fetch read statuses
-      const { data: readStatuses } = await supabase
-        .from("notification_reads")
-        .select("notification_type, notification_id")
-        .eq("user_id", user.id);
-
+      const readStatuses = await api.notifications.reads();
       const readSet = new Set(
-        readStatuses?.map(r => `${r.notification_type}-${r.notification_id}`) || []
+        (readStatuses || []).map((r: any) => `${r.notificationType}-${r.notificationId}`),
       );
 
-      // Fetch invitations (no nested orgs to avoid recursion)
-      const { data: invitationsRaw, error: invError } = await supabase
-        .from("organization_invitations")
-        .select("id, created_at, invitation_message, status, organization_id")
-        .eq("employee_id", user.id)
-        .order("created_at", { ascending: false });
+      const invitationsRaw = await api.organizations.myInvitations();
 
-      if (invError) {
-        console.error("❌ Error fetching invitations:", invError);
-      }
+      (invitationsRaw || []).forEach((inv: any) => {
+        const notifKey = `invitation-${inv.id}`;
+        const isProcessed = inv.status !== "pending";
+        const orgName = inv.organization?.name || "an organization";
 
-      // Fetch organization names separately
-      const orgIds = invitationsRaw?.map((inv) => inv.organization_id) || [];
-      let orgNamesMap: Record<string, string> = {};
-      
-      if (orgIds.length > 0) {
-        const { data: orgs, error: orgError } = await supabase
-          .from("organizations")
-          .select("id, name")
-          .in("id", orgIds);
-        
-        if (!orgError && orgs) {
-          orgNamesMap = orgs.reduce((acc, o) => {
-            acc[o.id] = o.name;
-            return acc;
-          }, {} as Record<string, string>);
-        }
-      }
-
-      // Build invitation notifications
-      if (invitationsRaw) {
-        invitationsRaw.forEach((inv: any) => {
-          const notifKey = `invitation-${inv.id}`;
-          const isProcessed = inv.status !== "pending";
-          
-          notificationsList.push({
-            id: inv.id,
-            type: "invitation",
-            message: isProcessed 
-              ? `Invitation ${inv.status}: ${orgNamesMap[inv.organization_id] || "organization"}`
-              : `Invitation to join ${orgNamesMap[inv.organization_id] || "organization"}`,
-            read: readSet.has(notifKey) || isProcessed,
-            created_at: inv.created_at,
-            invitation_id: inv.id,
-            organization_name: orgNamesMap[inv.organization_id],
-            invitation_message: inv.invitation_message,
-            organization_id: inv.organization_id,
-          });
+        notificationsList.push({
+          id: inv.id,
+          type: "invitation",
+          message: isProcessed
+            ? `Invitation ${inv.status}: ${orgName}`
+            : `You've been invited to join ${orgName}`,
+          read: readSet.has(notifKey) || isProcessed,
+          created_at: inv.createdAt || new Date().toISOString(),
+          invitation_id: inv.id,
+          organization_name: orgName,
+          organization_photo: inv.organization?.photoUrl,
+          invitation_message: inv.invitationMessage,
+          organization_id: inv.organizationId,
+          status: inv.status,
+          invited_by_avatar: undefined,
+          position: inv.contractDuration,
         });
-      }
+      });
 
-      // Fetch task assignments
-      const { data: taskAssignments, error: taskError } = await supabase
-        .from("task_assignments")
-        .select("task_id, created_at, tasks(title, profiles!tasks_assigned_by_fkey(first_name, last_name))")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(20);
+      const assignedTasks = await api.tasks.list({ all: false });
 
-      if (taskError) {
-        console.error("❌ Error fetching task assignments:", taskError);
-      }
-
-      if (taskAssignments) {
-        taskAssignments.forEach((assignment: any) => {
-          const notifKey = `task-${assignment.task_id}`;
-          const assignerName = assignment.tasks?.profiles
-            ? `${assignment.tasks.profiles.first_name || ""} ${assignment.tasks.profiles.last_name || ""}`.trim()
+      (assignedTasks || [])
+        .filter((task: any) => task.status !== "completed")
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.createdAt || b.updatedAt || 0).getTime() -
+            new Date(a.createdAt || a.updatedAt || 0).getTime(),
+        )
+        .slice(0, 20)
+        .forEach((task: any) => {
+          const notifKey = `task-${task.id}`;
+          const assignerName = task.assignedBy
+            ? `${task.assignedBy.firstName || ""} ${task.assignedBy.lastName || ""}`.trim()
             : "Unknown";
-          
+
           notificationsList.push({
-            id: assignment.task_id,
+            id: task.id,
             type: "task",
-            message: `New task assigned: ${assignment.tasks?.title || "Unknown"} by ${assignerName}`,
+            message: t("notificationsPage.taskAssigned", { title: task.title || "Unknown" }),
             read: readSet.has(notifKey),
-            created_at: assignment.created_at,
-            task_id: assignment.task_id,
+            created_at: task.createdAt || task.updatedAt || new Date().toISOString(),
+            task_id: task.id,
+            invited_by_name: assignerName,
           });
         });
-      }
+
+      const completedTasks = await api.tasks.list({
+        all: true,
+        status: "completed",
+        assignedById: userId,
+      });
+
+      (completedTasks || [])
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.actualCompletedAt || b.updatedAt || b.createdAt || 0).getTime() -
+            new Date(a.actualCompletedAt || a.updatedAt || a.createdAt || 0).getTime(),
+        )
+        .slice(0, 30)
+        .forEach((task: any) => {
+          const notifKey = `task_completed-${task.id}`;
+          const assigneeName = task.assignedTo
+            ? `${task.assignedTo.firstName || ""} ${task.assignedTo.lastName || ""}`.trim()
+            : undefined;
+
+          notificationsList.push({
+            id: `${task.id}-completed`,
+            type: "task_completed",
+            message: `Task completed: ${task.title || "Unknown task"}`,
+            read: readSet.has(notifKey),
+            created_at:
+              task.actualCompletedAt ||
+              task.updatedAt ||
+              task.createdAt ||
+              new Date().toISOString(),
+            task_id: task.id,
+            assignee_name: assigneeName,
+          });
+        });
 
       // Sort by date
       notificationsList.sort((a, b) => 
@@ -195,9 +188,11 @@ const Notifications = () => {
 
       setNotifications(notificationsList);
 
-      // Update unread count
-      const unreadCount = notificationsList.filter((n) => !n.read).length;
-      setUnreadCount(unreadCount);
+      // Badge endi tayinlangan tasklar va siz tayinlagan "completed" tasklar bo'yicha hisoblanadi
+      const unreadTasksCount = notificationsList.filter(
+        (n) => !n.read && (n.type === "task" || n.type === "task_completed")
+      ).length;
+      setUnreadCount(unreadTasksCount);
     } catch (error) {
       console.error("❌ Critical error fetching notifications:", error);
       toast({
@@ -210,148 +205,57 @@ const Notifications = () => {
     }
   };
 
-  // 🚀 PRODUCTION-GRADE ACCEPTANCE FLOW
   const handleAcceptInvitation = async (invitationId: string, organizationId: string) => {
-  setProcessingInvitation(invitationId);
+    setProcessingInvitation(invitationId);
 
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Not authenticated");
-
-    console.log("🔄 Step 1: Verifying invitation...");
-
-    // Verify invitation exists and is pending
-    const { data: invitation, error: invError } = await supabase
-      .from("organization_invitations")
-      .select("*")
-      .eq("id", invitationId)
-      .eq("employee_id", user.id)
-      .eq("status", "pending")
-      .maybeSingle();
-
-    if (invError) throw new Error(`Invitation error: ${invError.message}`);
-    if (!invitation) throw new Error("Invitation not found or already processed");
-
-    console.log("✅ Invitation verified:", invitation);
-    console.log("🔄 Step 2: Updating invitation status...");
-
-    // Update invitation to 'accepted' FIRST
-    const { error: updateError } = await supabase
-      .from("organization_invitations")
-      .update({ 
-        status: "accepted", 
-        accepted_at: new Date().toISOString() 
-      })
-      .eq("id", invitationId)
-      .eq("status", "pending");
-
-    if (updateError) throw new Error(`Update error: ${updateError.message}`);
-
-    console.log("✅ Invitation marked as accepted");
-    console.log("🔄 Step 3: Adding member to organization...");
-
-    // Small delay to ensure DB consistency
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Now insert into organization_members
-    const memberData = {
-      organization_id: invitation.organization_id,
-      user_id: user.id,
-      position: invitation.contract_duration || "Member",
-      added_at: new Date().toISOString(),
-      agreement_accepted_at: new Date().toISOString(),
-      agreement_version_accepted: 1,
-    };
-
-    console.log("📝 Member data:", memberData);
-
-    const { data: newMember, error: memberError } = await supabase
-      .from("organization_members")
-      .insert(memberData)
-      .select()
-      .maybeSingle();
-
-    if (memberError) {
-      console.error("❌ Member insert failed:", {
-        code: memberError.code,
-        message: memberError.message,
-        details: memberError.details,
-        hint: memberError.hint,
+    try {
+      await api.organizations.acceptInvitation(invitationId);
+      await api.notifications.markRead({
+        notificationType: "invitation",
+        notificationId: invitationId,
       });
 
-      // Rollback invitation
-      await supabase
-        .from("organization_invitations")
-        .update({ status: "pending", accepted_at: null })
-        .eq("id", invitationId);
+      localStorage.setItem("selectedOrganizationId", organizationId);
+      
+      window.dispatchEvent(new CustomEvent("organization-joined", { 
+        detail: { organizationId }
+      }));
 
-      throw new Error(`Failed to add member: ${memberError.message}`);
+      toast({
+        title: t("common.success"),
+        description: t("notificationsPage.accepted"),
+      });
+
+      await fetchNotifications();
+      await refreshUnread();
+
+      setTimeout(() => navigate("/dashboard"), 1500);
+
+    } catch (error: any) {
+      console.error("❌ ACCEPTANCE FAILED:", error);
+        toast({
+          title: t("common.error"),
+          description: error.message || "",
+          variant: "destructive",
+        });
+    } finally {
+      setProcessingInvitation(null);
     }
+  };
 
-    console.log("✅ Member added successfully!", newMember);
-
-    // Mark notification as read
-    await supabase.from("notification_reads").insert({
-      user_id: user.id,
-      notification_type: "invitation",
-      notification_id: invitationId,
-    });
-
-    // Store organization and trigger refresh
-    localStorage.setItem("selectedOrganizationId", organizationId);
-    
-    window.dispatchEvent(new CustomEvent("organization-joined", { 
-      detail: { organizationId }
-    }));
-
-    toast({
-      title: "Success! 🎉",
-      description: "You've joined the organization successfully.",
-    });
-
-    await fetchNotifications();
-    await refreshUnread();
-
-    setTimeout(() => navigate("/dashboard"), 1500);
-
-  } catch (error: any) {
-    console.error("❌ ACCEPTANCE FAILED:", error);
-    
-    toast({
-      title: "Failed to accept invitation",
-      description: error.message,
-      variant: "destructive",
-    });
-  } finally {
-    setProcessingInvitation(null);
-  }
-};
   const handleDeclineInvitation = async (invitationId: string) => {
     setProcessingInvitation(invitationId);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { error } = await supabase
-        .from("organization_invitations")
-        .update({ status: "declined", declined_at: new Date().toISOString() })
-        .eq("id", invitationId)
-        .eq("employee_id", user.id)
-        .eq("status", "pending");
-
-      if (error) throw error;
-
-      // Mark as read
-      await supabase.from("notification_reads").insert({
-        user_id: user.id,
-        notification_type: "invitation",
-        notification_id: invitationId,
+      await api.organizations.declineInvitation(invitationId);
+      await api.notifications.markRead({
+        notificationType: "invitation",
+        notificationId: invitationId,
       });
 
       toast({
-        title: "Invitation declined",
-        description: "You can view it in your notification history.",
+        title: t("common.success"),
+        description: t("notificationsPage.decline"),
       });
 
       await fetchNotifications();
@@ -359,8 +263,8 @@ const Notifications = () => {
     } catch (error: any) {
       console.error("❌ Error declining invitation:", error);
       toast({
-        title: "Error",
-        description: error.message || "Failed to decline invitation",
+        title: t("common.error"),
+        description: error.message || "",
         variant: "destructive",
       });
     } finally {
@@ -371,58 +275,64 @@ const Notifications = () => {
   const markAsRead = async (notification: Notification) => {
     if (notification.read) return;
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+    const targetId = notification.type === "invitation" ? notification.invitation_id : notification.task_id;
+    if (!targetId) return;
 
-      await supabase.from("notification_reads").insert({
-        user_id: user.id,
-        notification_type: notification.type,
-        notification_id: notification.type === "invitation" ? notification.invitation_id! : notification.task_id!,
+    try {
+      await api.notifications.markRead({
+        notificationType: notification.type,
+        notificationId: targetId,
       });
 
       setNotifications((prev) =>
         prev.map((n) => (n.id === notification.id ? { ...n, read: true } : n))
       );
 
-      setUnreadCount((prev) => Math.max(prev - 1, 0));
+      if (notification.type === "task" || notification.type === "task_completed") {
+        setUnreadCount((prev) => Math.max(prev - 1, 0));
+      }
     } catch (error) {
       console.error("Error marking as read:", error);
     }
   };
 
   const markAllAsRead = async () => {
+    const unreadNotifications = notifications.filter((n) => !n.read);
+    const unreadWithIds = unreadNotifications
+      .map((n) => ({
+        ...n,
+        targetId: n.type === "invitation" ? n.invitation_id : n.task_id,
+      }))
+      .filter((n) => !!n.targetId);
+
+    if (unreadWithIds.length === 0) {
+      return;
+    }
+
+    // Optimistik UI: darhol o'qilgan deb belgilaymiz
+    setNotifications((prev) => prev.map((n) => (n.read ? n : { ...n, read: true })));
+    setUnreadCount(0);
+
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      await Promise.all(
+        unreadWithIds.map((n) =>
+          api.notifications
+            .markRead({ notificationType: n.type, notificationId: n.targetId! })
+            .catch(() => null),
+        ),
+      );
 
-      const unreadNotifications = notifications.filter((n) => !n.read);
-      const inserts = unreadNotifications.map((n) => ({
-        user_id: user.id,
-        notification_type: n.type,
-        notification_id: n.type === "invitation" ? n.invitation_id! : n.task_id!,
-      }));
-
-      if (inserts.length > 0) {
-        await supabase.from("notification_reads").insert(inserts);
-      }
-
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-      setUnreadCount(0);
       await refreshUnread();
+      await fetchNotifications();
     } catch (error) {
       console.error("Error marking all as read:", error);
-    }
-  };
-
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case "invitation":
-        return <UserPlus className="h-5 w-5" />;
-      case "task":
-        return <ClipboardList className="h-5 w-5" />;
-      default:
-        return <Bell className="h-5 w-5" />;
+      toast({
+        title: t("common.error"),
+        description: "Failed to mark as read",
+        variant: "destructive",
+      });
+      // Agar xato bo'lsa, qayta yuklab UI ni sinxronlab qo'yamiz
+      fetchNotifications();
     }
   };
 
@@ -432,146 +342,362 @@ const Notifications = () => {
       : notifications;
 
   return (
-    <div className="min-h-screen max-h-screen overflow-y-auto bg-gradient-to-br from-primary/5 via-background to-accent/5 p-6 pb-24">
-      <div className="container max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+    <div className="min-h-screen max-h-screen overflow-y-auto pb-24 relative">
+      <WinterBackground />
+      <div className="container max-w-5xl mx-auto p-6 space-y-6 relative z-10">
+        {/* Header Section */}
+        <div className="flex items-start justify-between gap-4 animate-fade-in">
           <div>
-            <h1 className="text-3xl font-bold text-foreground mb-2">Notifications</h1>
-            <p className="text-muted-foreground">
-              Stay updated with your latest activities
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg">
+                <Bell className="h-6 w-6 text-white" />
+              </div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
+                {t("notificationsPage.title")}
+              </h1>
+            </div>
+            <p className="text-slate-600 dark:text-slate-400 ml-16">
+              {t("notificationsPage.subtitle")}
             </p>
           </div>
-          <Button onClick={markAllAsRead} variant="outline" size="sm">
+          <Button 
+            onClick={markAllAsRead} 
+            variant="outline" 
+            size="lg"
+            className="shrink-0 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-200"
+            disabled={notifications.filter(n => !n.read).length === 0}
+          >
             <CheckCheck className="mr-2 h-4 w-4" />
-            Mark All Read
+            {t("notificationsPage.markAllRead")}
           </Button>
         </div>
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex gap-2">
-              <Button
-                variant={filter === "all" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFilter("all")}
-              >
-                All
-              </Button>
-              <Button
-                variant={filter === "unread" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFilter("unread")}
-              >
-                Unread
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Filter Tabs */}
+        <div className="flex gap-2 p-2 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md ring-1 ring-white/20 rounded-2xl w-fit animate-fade-in" style={{ animationDelay: "100ms" }}>
+          <Button
+            variant={filter === "all" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setFilter("all")}
+            className={cn(
+              "rounded-xl transition-all duration-200",
+              filter === "all" && "shadow-lg"
+            )}
+          >
+            {t("notificationsPage.all")}
+            {notifications.filter(n => !n.read).length > 0 && (
+              <Badge variant="secondary" className="ml-2">
+                {notifications.filter(n => !n.read).length}
+              </Badge>
+            )}
+          </Button>
+          <Button
+            variant={filter === "unread" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setFilter("unread")}
+            className={cn(
+              "rounded-xl transition-all duration-200",
+              filter === "unread" && "shadow-lg"
+            )}
+          >
+            {t("notificationsPage.unread")}
+            {notifications.filter(n => !n.read).length > 0 && (
+              <Badge variant="secondary" className="ml-2">
+                {notifications.filter(n => !n.read).length}
+              </Badge>
+            )}
+          </Button>
+        </div>
 
+        {/* Notifications List */}
         {loading ? (
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                <p className="text-muted-foreground">Loading notifications...</p>
+          <Card className="animate-fade-in border-0 shadow-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20">
+            <CardContent className="py-16">
+              <div className="text-center">
+                <div className="relative w-16 h-16 mx-auto mb-4">
+                  <div className="absolute inset-0 rounded-full border-4 border-primary/20"></div>
+                  <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+                  <Sparkles className="absolute inset-0 m-auto h-6 w-6 text-primary animate-pulse" />
+                </div>
+                <p className="text-slate-600 dark:text-slate-400 font-medium">{t("notificationsPage.loading")}</p>
               </div>
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {filteredNotifications.length === 0 ? (
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center py-8">
-                    <Bell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">No notifications to display</p>
+              <Card className="animate-fade-in border-0 shadow-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20" style={{ animationDelay: "200ms" }}>
+                <CardContent className="py-16">
+                  <div className="text-center">
+                    <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                      <Bell className="h-10 w-10 text-slate-400" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+                      {t("notificationsPage.allCaughtUp")}
+                    </h3>
+                    <p className="text-slate-600 dark:text-slate-400">
+                      {filter === "unread" ? t("notificationsPage.noUnread") : t("notificationsPage.none")}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
             ) : (
-              filteredNotifications.map((notification) => (
+              filteredNotifications.map((notification, index) => (
                 <Card
                   key={notification.id}
-                  className={`transition-colors ${
-                    !notification.read ? "border-primary/50 bg-primary/5" : ""
-                  }`}
+                  className={cn(
+                    "transition-all duration-300 hover:shadow-2xl border-0 animate-slide-in backdrop-blur-xl ring-1",
+                    !notification.read
+                      ? "bg-white/90 dark:bg-slate-900/90 ring-primary/30 shadow-lg shadow-primary/10"
+                      : "bg-white/80 dark:bg-slate-900/80 ring-white/20 hover:ring-white/30"
+                  )}
+                  style={{ animationDelay: `${index * 50}ms` }}
                 >
-                  <CardContent className="pt-6">
-                    <div className="flex items-start gap-4">
-                      <div className="mt-1">
-                        {getNotificationIcon(notification.type)}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1">
-                            <p className={!notification.read ? "font-bold" : "font-medium"}>
-                              {notification.message}
-                            </p>
+                  <CardContent className="p-6">
+                    {notification.type === "invitation" ? (
+                      /* ENHANCED INVITATION CARD */
+                      <div className="space-y-4">
+                        {/* Header with Organization */}
+                        <div className="flex items-start gap-4">
+                          <div className="relative">
+                            <Avatar className="h-16 w-16 border-4 border-white dark:border-slate-900 shadow-xl ring-2 ring-primary/20">
+                              <AvatarImage src={notification.organization_photo || ""} />
+                              <AvatarFallback className="text-lg font-bold bg-gradient-to-br from-primary to-primary/70 text-white">
+                                {notification.organization_name?.substring(0, 2).toUpperCase() || "ORG"}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 shadow-lg">
+                              <UserPlus className="h-3 w-3 text-white" />
+                            </div>
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-4 mb-2">
+                              <div className="flex-1">
+                                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-1">
+                                  {t("notificationsPage.invitationTitle")}
+                                </h3>
+                                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                                  <Building2 className="h-4 w-4" />
+                                  <span className="font-semibold text-primary">
+                                    {notification.organization_name}
+                                  </span>
+                                </div>
+                              </div>
+                              {!notification.read && (
+                                <Badge className="shrink-0 bg-gradient-to-r from-primary to-primary/80 shadow-lg">
+                                  <Sparkles className="h-3 w-3 mr-1" />
+                                  {t("notificationsPage.newBadge")}
+                                </Badge>
+                              )}
+                            </div>
+
+                            {/* Details Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                              {/* Invited By */}
+                              {/* <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                                <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                                  <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Invited by</p>
+                                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                                    {notification.invited_by_name}
+                                  </p>
+                                </div>
+                              </div> */}
+
+                              {/* Position */}
+                              {notification.position && (
+                                <div className="flex items-center gap-3 p-3 rounded-xl bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm ring-1 ring-white/30 dark:ring-slate-700/50">
+                                  <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                                    <Briefcase className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t("notificationsPage.position")}</p>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                                      {notification.position}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Time */}
+                              <div className={cn(
+                                "flex items-center gap-3 p-3 rounded-xl bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm ring-1 ring-white/30 dark:ring-slate-700/50",
+                                !notification.position && "sm:col-span-2"
+                              )}>
+                                <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                                  <Clock className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{t("notificationsPage.time")}</p>
+                                  <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                    {formatRelativeTime(
+                                      new Date(notification.created_at),
+                                      i18n.language,
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Invitation Message */}
                             {notification.invitation_message && (
-                              <p className="text-sm text-muted-foreground mt-1 italic">
-                                "{notification.invitation_message}"
-                              </p>
-                            )}
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {formatDistanceToNow(new Date(notification.created_at), {
-                                addSuffix: true,
-                              })}
-                            </p>
-                            
-                            {notification.type === "invitation" && !notification.read && (
-                              <div className="flex gap-2 mt-3">
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleAcceptInvitation(
-                                    notification.invitation_id!,
-                                    notification.organization_id!
-                                  )}
-                                  disabled={processingInvitation === notification.invitation_id}
-                                >
-                                  {processingInvitation === notification.invitation_id ? (
-                                    <>
-                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                      Processing...
-                                    </>
-                                  ) : (
-                                    "Accept"
-                                  )}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleDeclineInvitation(notification.invitation_id!)}
-                                  disabled={processingInvitation === notification.invitation_id}
-                                >
-                                  Decline
-                                </Button>
+                              <div className="mt-4 p-4 rounded-xl bg-gradient-to-br from-amber-50/80 to-orange-50/80 dark:from-amber-900/20 dark:to-orange-900/20 backdrop-blur-sm ring-1 ring-amber-200/50 dark:ring-amber-800/30">
+                                <div className="flex items-start gap-3">
+                                  <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/30 shrink-0">
+                                    <MessageSquare className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="text-xs font-semibold text-amber-900 dark:text-amber-400 mb-1">
+                                    {t("notificationsPage.personalMessage")}
+                                  </p>
+                                    <p className="text-sm text-slate-700 dark:text-slate-300 italic leading-relaxed">
+                                      "{notification.invitation_message}"
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
                             )}
-                            
-                            {notification.type === "task" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="mt-2"
-                                onClick={() => {
-                                  markAsRead(notification);
-                                  navigate("/tasks");
-                                }}
-                              >
-                                View Task
-                              </Button>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {!notification.read ? (
-                              <Badge variant="default" className="shrink-0">
-                                New
-                              </Badge>
-                            ) : null}
+
+                            {/* Action Buttons or Status Display */}
+                            <div className="flex gap-3 mt-4">
+                              {notification.type === "invitation" && notification.status === "pending" ? (
+                                <>
+                                  <Button
+                                    size="lg"
+                                    onClick={() => handleAcceptInvitation(
+                                      notification.invitation_id!,
+                                      notification.organization_id!
+                                    )}
+                                    disabled={processingInvitation === notification.invitation_id}
+                                    className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-lg hover:shadow-xl transition-all duration-200"
+                                  >
+                                    {processingInvitation === notification.invitation_id ? (
+                                      <>
+                                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                        {t("notificationsPage.processing")}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Check className="mr-2 h-5 w-5" />
+                                        {t("notificationsPage.accept")}
+                                      </>
+                                    )}
+                                  </Button>
+                                  <Button
+                                    size="lg"
+                                    variant="outline"
+                                    onClick={() => handleDeclineInvitation(notification.invitation_id!)}
+                                    disabled={processingInvitation === notification.invitation_id}
+                                    className="flex-1 border-2 hover:bg-red-50 dark:hover:bg-red-950 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 transition-all duration-200"
+                                  >
+                                    <X className="mr-2 h-5 w-5" />
+                                    {t("notificationsPage.decline")}
+                                  </Button>
+                                </>
+                              ) : (
+                                <>
+                                  {notification.message?.includes("accepted") && (
+                                    <Button
+                                      size="lg"
+                                      disabled
+                                      className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg"
+                                    >
+                                      <Check className="mr-2 h-5 w-5" />
+                                      {t("notificationsPage.accepted")}
+                                    </Button>
+                                  )}
+                                  {notification.message?.includes("declined") && (
+                                    <Button
+                                      size="lg"
+                                      disabled
+                                      variant="outline"
+                                      className="flex-1 border-2 border-red-300 dark:border-red-800 text-red-600 dark:text-red-400"
+                                    >
+                                      <X className="mr-2 h-5 w-5" />
+                                      {t("notificationsPage.declined")}
+                                    </Button>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    ) : (
+                      /* TASK NOTIFICATION CARD */
+                      <div className="flex items-start gap-4">
+                        <div className="relative">
+                          <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg">
+                            {notification.type === "task_completed" ? (
+                              <Check className="h-6 w-6 text-white" />
+                            ) : (
+                              <ClipboardList className="h-6 w-6 text-white" />
+                            )}
+                          </div>
+                          {!notification.read && (
+                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></div>
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-4 mb-2">
+                            <div>
+                              <h3 className={cn(
+                                "text-lg font-semibold text-slate-900 dark:text-white mb-1",
+                                !notification.read && "font-bold"
+                              )}>
+                                {notification.type === "task_completed" ? "Task completed" : t("notificationsPage.newTask")}
+                              </h3>
+                              <p className="text-sm text-slate-600 dark:text-slate-400">
+                                {notification.message}
+                                {notification.assignee_name && notification.type === "task_completed" && (
+                                  <span className="ml-1 text-xs text-muted-foreground">(by {notification.assignee_name})</span>
+                                )}
+                              </p>
+                              <p className="text-xs text-slate-500 dark:text-slate-500 mt-2 flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {formatRelativeTime(
+                                  new Date(notification.created_at),
+                                  i18n.language,
+                                )}
+                              </p>
+                            </div>
+                            {!notification.read && (
+                              <Badge className="shrink-0 bg-gradient-to-r from-blue-500 to-indigo-600">
+                                {t("notificationsPage.newBadge")}
+                              </Badge>
+                            )}
+                          </div>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-3 hover:bg-blue-50 dark:hover:bg-blue-950 hover:border-blue-300 dark:hover:border-blue-800 transition-all duration-200"
+                            onClick={() => {
+                              markAsRead(notification);
+                              navigate("/tasks");
+                            }}
+                          >
+                            {t("notificationsPage.viewTaskDetails")}
+                          </Button>
+                          {notification.type === "task_completed" && notification.task_id && (
+                            <Button
+                              size="sm"
+                              className="mt-3 ml-2"
+                              onClick={() => {
+                                markAsRead(notification);
+                                setReportTaskId(notification.task_id!);
+                                setReportDialogOpen(true);
+                              }}
+                            >
+                              View reports
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))
@@ -579,6 +705,14 @@ const Notifications = () => {
           </div>
         )}
       </div>
+
+      {reportTaskId && (
+        <TaskReportsDialog
+          taskId={reportTaskId}
+          open={reportDialogOpen}
+          onOpenChange={setReportDialogOpen}
+        />
+      )}
     </div>
   );
 };

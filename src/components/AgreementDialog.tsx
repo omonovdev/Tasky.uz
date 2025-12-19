@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { FileText } from "lucide-react";
 
@@ -31,12 +31,7 @@ export default function AgreementDialog({
   const handleSave = async () => {
     try {
       setLoading(true);
-      const { error } = await supabase
-        .from("organizations")
-        .update({ agreement_text: text })
-        .eq("id", organizationId);
-
-      if (error) throw error;
+      await api.organizations.update(organizationId, { agreementText: text });
 
       toast({
         title: "Success",
@@ -45,10 +40,11 @@ export default function AgreementDialog({
 
       setOpen(false);
       onAgreementUpdated();
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update agreement";
       toast({
         title: "Error",
-        description: error.message,
+        description: message,
         variant: "destructive",
       });
     } finally {

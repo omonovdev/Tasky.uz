@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,10 +8,11 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { CheckCircle2, Edit2, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import BackButton from "@/components/BackButton";
-import BottomNav from "@/components/BottomNav";
+
 import TaskStagesManager from "@/components/TaskStagesManager";
 import TaskCompletionReport from "@/components/TaskCompletionReport";
 import FireProgress from "@/components/FireProgress";
+import WinterBackground from "@/components/WinterBackground";
 
 interface Task {
   id: string;
@@ -50,77 +51,54 @@ const Tasks = () => {
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
 
-      // Fetch tasks from task_assignments
-      const { data: assignments, error: assignmentError } = await supabase
-        .from("task_assignments")
-        .select("task_id")
-        .eq("user_id", user.id);
+      const apiTasks = await api.tasks.list({ all: false });
+      const mapped: Task[] = (apiTasks || []).map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description || "",
+        goal: t.goal || "",
+        deadline: t.deadline,
+        status: t.status,
+        created_at: t.createdAt,
+        assigned_by: t.assignedById,
+        last_edited_by: t.lastEditedBy ?? undefined,
+        last_edited_at: t.lastEditedAt ?? undefined,
+      }));
 
-      if (assignmentError) throw assignmentError;
-
-      const taskIds = assignments.map(a => a.task_id);
-
-      if (taskIds.length === 0) {
-        setTasks([]);
-        setUrgentTasks([]);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("*")
-        .in("id", taskIds)
-        .order("deadline", { ascending: true });
-
-      if (error) throw error;
-      
-      if (data) {
-        setTasks(data);
-        
-        // Fetch assigner names
-        const uniqueAssignerIds = [...new Set(data.map(t => t.assigned_by))];
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("id, first_name, last_name")
-          .in("id", uniqueAssignerIds);
-        
-        if (profiles) {
-          const namesMap: Record<string, string> = {};
-          profiles.forEach((profile: any) => {
-            namesMap[profile.id] = `${profile.first_name} ${profile.last_name}`;
-          });
-          setAssignerNames(namesMap);
+      const assignerMap: Record<string, string> = {};
+      const editorMap: Record<string, string> = {};
+      (apiTasks || []).forEach((t: any) => {
+        if (t.assignedById && t.assignedBy) {
+          const name = `${t.assignedBy.firstName || ""} ${t.assignedBy.lastName || ""}`.trim();
+          if (name) assignerMap[t.assignedById] = name;
         }
-        
-        // Fetch editor names
-        const uniqueEditorIds = [...new Set(data.filter(t => t.last_edited_by).map(t => t.last_edited_by!))];
-        if (uniqueEditorIds.length > 0) {
-          const { data: editorProfiles } = await supabase
-            .from("profiles")
-            .select("id, first_name, last_name")
-            .in("id", uniqueEditorIds);
-          
-          if (editorProfiles) {
-            const editorsMap: Record<string, string> = {};
-            editorProfiles.forEach((profile: any) => {
-              editorsMap[profile.id] = `${profile.first_name} ${profile.last_name}`;
-            });
-            setEditorNames(editorsMap);
+
+        if (t.lastEditedBy) {
+          const candidates = [
+            t.assignedBy,
+            t.assignedTo,
+            ...(t.assignments || []).map((a: any) => a.user).filter(Boolean),
+          ].filter(Boolean);
+          const found = candidates.find((u: any) => u.id === t.lastEditedBy);
+          if (found) {
+            const name = `${found.firstName || ""} ${found.lastName || ""}`.trim();
+            if (name) editorMap[t.lastEditedBy] = name;
           }
         }
-        
-        // Filter urgent tasks (less than 3 days)
-        const now = new Date();
-        const urgent = data.filter(task => {
-          const deadline = new Date(task.deadline);
-          const hoursLeft = (deadline.getTime() - now.getTime()) / (1000 * 60 * 60);
-          return hoursLeft < 72 && hoursLeft > 0 && task.status !== "completed"; // Less than 3 days (72 hours)
-        });
-        setUrgentTasks(urgent);
-      }
+      });
+
+      setAssignerNames(assignerMap);
+      setEditorNames(editorMap);
+      setTasks(mapped);
+
+      const now = new Date();
+      const urgent = mapped.filter((task) => {
+        const deadline = new Date(task.deadline);
+        const hoursLeft = (deadline.getTime() - now.getTime()) / (1000 * 60 * 60);
+        return hoursLeft < 72 && hoursLeft > 0 && task.status !== "completed";
+      });
+      setUrgentTasks(urgent);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -134,24 +112,19 @@ const Tasks = () => {
 
   const updateTaskStatus = async (taskId: string, newStatus: string) => {
     try {
-      const { error } = await supabase
-        .from("tasks")
-        .update({ status: newStatus })
-        .eq("id", taskId);
-
-      if (error) throw error;
+      await api.tasks.updateStatus(taskId, { status: newStatus });
 
       setTasks(tasks.map(task => 
         task.id === taskId ? { ...task, status: newStatus } : task
       ));
 
       toast({
-        title: "Success",
-        description: "Task status updated",
+        title: t("common.success"),
+        description: t("tasksPage.statusUpdated"),
       });
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -200,27 +173,28 @@ const Tasks = () => {
     if (totalMinutes < 0) {
       const overdueDays = Math.floor(Math.abs(totalMinutes) / (60 * 24));
       const overdueHours = Math.floor(Math.abs(totalMinutes) / 60);
-      if (overdueDays > 0) return `Overdue by ${overdueDays} day${overdueDays > 1 ? 's' : ''}`;
-      return `Overdue by ${overdueHours} hour${overdueHours > 1 ? 's' : ''}`;
+      if (overdueDays > 0) return t("tasksPage.overdueDays", { count: overdueDays });
+      return t("tasksPage.overdueHours", { count: overdueHours });
     }
     
     if (totalMinutes < 60) {
-      return `${totalMinutes} minute${totalMinutes !== 1 ? 's' : ''} left`;
+      return t("tasksPage.minutesLeft", { count: totalMinutes });
     }
     
     const totalHours = Math.floor(totalMinutes / 60);
     if (totalHours < 24) {
-      return `${totalHours} hour${totalHours !== 1 ? 's' : ''} left`;
+      return t("tasksPage.hoursLeft", { count: totalHours });
     }
     
     const totalDays = Math.floor(totalHours / 24);
-    return `${totalDays} day${totalDays !== 1 ? 's' : ''} left`;
+    return t("tasksPage.daysLeft", { count: totalDays });
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/5 pb-20 flex items-center justify-center">
-        <p className="text-muted-foreground">Loading tasks...</p>
+      <div className="min-h-screen pb-20 flex items-center justify-center relative">
+        <WinterBackground />
+        <p className="text-muted-foreground relative z-10">{t("tasksPage.loading")}</p>
       </div>
     );
   }
@@ -237,7 +211,7 @@ const Tasks = () => {
   };
 
   const renderTask = (task: Task) => (
-    <Card key={task.id} className="relative">
+    <Card key={task.id} className="relative border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 shadow-lg hover:shadow-xl transition-all duration-300">
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="space-y-1 flex-1">
@@ -247,13 +221,13 @@ const Tasks = () => {
             )}
             {task.goal && (
               <CardDescription className="mt-2">
-                <span className="font-semibold">Goal:</span> {task.goal}
+                <span className="font-semibold">{t("tasksPage.goal")}:</span> {task.goal}
               </CardDescription>
             )}
           </div>
           <div className="flex items-center gap-2">
             <Badge className={getStatusColor(task.status)}>
-              {task.status.replace("_", " ")}
+              {task.status === "completed" ? t("tasks.completed") : task.status === "in_progress" ? t("tasks.inProgress") : t("tasks.pending")}
             </Badge>
             {task.status === "completed" && (
               <div className="bg-success rounded-full p-1">
@@ -265,10 +239,12 @@ const Tasks = () => {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="text-sm text-muted-foreground space-y-0.5">
-          <div>Assigned by {assignerNames[task.assigned_by] || "Unknown"} on {formatAssignedDate(task.created_at)}</div>
-          {task.last_edited_by && task.last_edited_at && (
+          <div>
+            {t("tasksPage.assignedByOn", { name: assignerNames[task.assigned_by] || t("tasksPage.unknown"), date: formatAssignedDate(task.created_at) })}
+          </div>
+          {task.status !== "completed" && task.last_edited_by && task.last_edited_at && (
             <div className="text-amber-600 dark:text-amber-400">
-              Edited by {editorNames[task.last_edited_by] || "Unknown"} on {formatAssignedDate(task.last_edited_at)}
+              {t("tasksPage.editedByOn", { name: editorNames[task.last_edited_by] || t("tasksPage.unknown"), date: formatAssignedDate(task.last_edited_at) })}
             </div>
           )}
         </div>
@@ -276,7 +252,7 @@ const Tasks = () => {
         {task.status !== "completed" && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Time Remaining</span>
+              <span className="text-muted-foreground">{t("tasksPage.timeRemaining")}</span>
               <span className="font-bold text-destructive text-base">
                 {formatDeadline(task.deadline)}
               </span>
@@ -292,7 +268,7 @@ const Tasks = () => {
             variant="outline"
           >
             <Edit2 className="w-4 h-4 mr-1" />
-            Stages
+            {t("tasksPage.stages")}
           </Button>
           <Button
             onClick={() => updateTaskStatus(task.id, "in_progress")}
@@ -300,7 +276,7 @@ const Tasks = () => {
             variant="outline"
             disabled={task.status !== "pending"}
           >
-            Start
+            {t("tasksPage.start")}
           </Button>
           <Button
             onClick={() => {
@@ -311,7 +287,7 @@ const Tasks = () => {
             disabled={task.status === "completed"}
           >
             <CheckCircle2 className="w-4 h-4 mr-1" />
-            Complete
+            {t("tasksPage.complete")}
           </Button>
         </div>
       </CardContent>
@@ -319,40 +295,41 @@ const Tasks = () => {
   );
 
   return (
-    <div className="min-h-screen max-h-screen overflow-y-auto bg-gradient-to-br from-primary/5 via-background to-accent/5 pb-20">
-      <div className="container max-w-2xl mx-auto p-4 space-y-6">
+    <div className="min-h-screen max-h-screen overflow-y-auto pb-20 relative">
+      <WinterBackground />
+      <div className="container max-w-2xl mx-auto p-4 space-y-6 relative z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <BackButton to="/" />
             <h1 className="text-3xl font-bold">{t("tasks.myTasks")}</h1>
           </div>
-          <Badge variant="outline">{tasks.length} total</Badge>
+          <Badge variant="outline">{t("tasksPage.totalCount", { count: tasks.length })}</Badge>
         </div>
 
         {/* Section Headers */}
         <div className="grid grid-cols-2 gap-4">
-          <Card className="bg-primary/5 border-primary/20">
+          <Card className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-0 ring-1 ring-primary/30 shadow-lg">
             <CardContent className="pt-6 text-center">
               <h2 className="text-2xl font-bold text-primary">{inProgressTasks.length}</h2>
-              <p className="text-sm text-muted-foreground">To Be Completed</p>
+              <p className="text-sm text-muted-foreground">{t("tasksPage.toBeCompleted")}</p>
             </CardContent>
           </Card>
-          <Card className="bg-success/5 border-success/20">
+          <Card className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-0 ring-1 ring-success/30 shadow-lg">
             <CardContent className="pt-6 text-center">
               <h2 className="text-2xl font-bold text-success">{completedTasks.length}</h2>
-              <p className="text-sm text-muted-foreground">Completed</p>
+              <p className="text-sm text-muted-foreground">{t("tasksPage.completed")}</p>
             </CardContent>
           </Card>
         </div>
 
         {!showAllTasks && urgentTasks.length > 0 && (
-          <Card className="border-destructive bg-destructive/5">
+          <Card className="border-0 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl ring-1 ring-destructive/40 shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-destructive">
                 <AlertCircle className="w-5 h-5" />
-                Urgent Tasks ({urgentTasks.length})
+                {t("tasksPage.urgentTitle", { count: urgentTasks.length })}
               </CardTitle>
-              <CardDescription>Tasks with less than 3 days remaining</CardDescription>
+              <CardDescription>{t("tasksPage.urgentSubtitle")}</CardDescription>
             </CardHeader>
           </Card>
         )}
@@ -367,11 +344,11 @@ const Tasks = () => {
         </div>
 
         {displayTasks.length === 0 ? (
-          <Card>
+          <Card className="border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 shadow-lg">
             <CardContent className="py-12 text-center">
               <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
               <p className="text-muted-foreground">
-                {showAllTasks ? "No tasks assigned yet" : "No urgent tasks"}
+                {showAllTasks ? t("tasksPage.emptyAll") : t("tasksPage.emptyUrgent")}
               </p>
             </CardContent>
           </Card>
@@ -379,17 +356,17 @@ const Tasks = () => {
           <div className="space-y-6">
             {inProgressTasks.length > 0 && (
               <div className="space-y-4">
-                <h2 className="text-2xl font-bold sticky top-0 bg-background/95 backdrop-blur py-2 z-10 border-b">
-                  To Be Completed
+                <h2 className="text-2xl font-bold sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl py-2 z-10 border-b border-white/30">
+                  {t("tasksPage.toBeCompleted")}
                 </h2>
                 {inProgressTasks.map(renderTask)}
               </div>
             )}
-            
+
             {completedTasks.length > 0 && (
               <div className="space-y-4">
-                <h2 className="text-2xl font-bold sticky top-0 bg-background/95 backdrop-blur py-2 z-10 border-b">
-                  Completed
+                <h2 className="text-2xl font-bold sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl py-2 z-10 border-b border-white/30">
+                  {t("tasksPage.completed")}
                 </h2>
                 {completedTasks.map(renderTask)}
               </div>
@@ -419,7 +396,6 @@ const Tasks = () => {
         </DialogContent>
       </Dialog>
 
-      <BottomNav />
     </div>
   );
 };

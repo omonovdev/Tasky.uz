@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authState } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { CheckCircle2, Clock, AlertCircle, Calendar as CalendarIcon } from "lucide-react";
 import { format, isSameDay } from "date-fns";
 import { TaskDetailDialog } from "@/components/TaskDetailDialog";
 import EstimatedTimeDialog from "@/components/EstimatedTimeDialog";
 import TaskDeclineDialog from "@/components/TaskDeclineDialog";
+import { useTranslation } from "react-i18next";
+import WinterBackground from "@/components/WinterBackground";
 
 interface Task {
   id: string;
@@ -26,6 +29,7 @@ interface Task {
 
 const CalendarView = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedDateTasks, setSelectedDateTasks] = useState<Task[]>([]);
@@ -37,7 +41,7 @@ const CalendarView = () => {
   const [decliningTask, setDecliningTask] = useState<Task | null>(null);
 
   useEffect(() => {
-    checkAuth();
+    if (!authState.isLoggedIn()) navigate("/auth");
     fetchTasks();
   }, []);
 
@@ -50,52 +54,37 @@ const CalendarView = () => {
     }
   }, [date, tasks]);
 
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/auth");
-    }
-  };
-
   const fetchTasks = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Fetch tasks from task_assignments
-      const { data: assignments } = await supabase
-        .from("task_assignments")
-        .select("task_id")
-        .eq("user_id", user.id);
-
-      if (!assignments || assignments.length === 0) {
-        setTasks([]);
-        return;
-      }
-
-      const taskIds = assignments.map(a => a.task_id);
-
-      const { data } = await supabase
-        .from("tasks")
-        .select("*")
-        .in("id", taskIds);
-
-      if (data) setTasks(data);
+      const data = await api.tasks.list({ all: false });
+      const mapped: Task[] = (data || []).map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        deadline: t.deadline,
+        description: t.description ?? null,
+        assigned_by: t.assignedById,
+        assigned_to: t.assignedToId,
+        goal: t.goal ?? null,
+        estimated_completion_hours: t.estimatedCompletionHours ?? null,
+        decline_reason: t.declineReason ?? null,
+      }));
+      setTasks(mapped);
     } catch (error) {
       console.error("Error fetching tasks:", error);
     }
   };
 
   const getTaskColor = (task: Task) => {
-    if (task.status === "completed") return "bg-success text-success-foreground";
+    if (task.status === "completed") return "bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-sm shadow-emerald-500/30";
     const now = new Date();
     const deadline = new Date(task.deadline);
     const hoursLeft = (deadline.getTime() - now.getTime()) / (1000 * 60 * 60);
     
-    if (hoursLeft < 0) return "bg-destructive text-destructive-foreground";
-    if (hoursLeft < 24) return "bg-destructive text-destructive-foreground";
-    if (hoursLeft < 72) return "bg-accent text-accent-foreground";
-    return "bg-primary text-primary-foreground";
+    if (hoursLeft < 0) return "bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-sm shadow-red-500/30";
+    if (hoursLeft < 24) return "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-sm shadow-orange-500/30";
+    if (hoursLeft < 72) return "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm shadow-amber-500/30";
+    return "bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-sm shadow-blue-500/30";
   };
 
   const getDateColor = (date: Date) => {
@@ -160,6 +149,16 @@ const CalendarView = () => {
     setDialogOpen(true);
   };
 
+  // Convert minutes to hours and minutes display
+  const formatEstimatedTime = (minutes: number | null) => {
+    if (!minutes) return null;
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hrs === 0) return `${mins}m`;
+    if (mins === 0) return `${hrs}h`;
+    return `${hrs}h ${mins}m`;
+  };
+
   const taskDates = tasks.map(task => new Date(task.deadline));
   const modifiers = {
     hasTask: taskDates
@@ -177,100 +176,158 @@ const CalendarView = () => {
   };
 
   return (
-    <div className="min-h-screen max-h-screen overflow-y-auto bg-gradient-to-br from-primary/5 via-background to-accent/5 p-6 pb-24">
-      <div className="container max-w-6xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground mb-2">Calendar</h1>
-            <p className="text-muted-foreground">View all your tasks by due date</p>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant={viewMode === "month" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setViewMode("month")}
-            >
-              Month
-            </Button>
-            <Button
-              variant={viewMode === "week" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setViewMode("week")}
-            >
-              Week
-            </Button>
-            <Button
-              variant={viewMode === "day" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setViewMode("day")}
-            >
-              Day
-            </Button>
+    <div className="min-h-screen max-h-screen overflow-y-auto pb-24 relative">
+      <WinterBackground />
+      <div className="container max-w-6xl mx-auto p-6 space-y-6 relative z-10">
+        {/* Header with gradient background */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600/90 via-purple-600/90 to-pink-600/90 backdrop-blur-xl p-8 shadow-2xl ring-1 ring-white/20">
+          <div className="absolute inset-0 bg-grid-white/10"></div>
+          <div className="relative flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl shadow-lg">
+                <CalendarIcon className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-4xl font-bold text-white mb-1 drop-shadow-lg">{t("calendarPage.title")}</h1>
+                <p className="text-white/90 text-lg">{t("calendarPage.subtitle")}</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === "month" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode("month")}
+                className={`transition-all duration-300 ${
+                  viewMode === "month" 
+                    ? "bg-white text-purple-600 hover:bg-white/90 shadow-lg" 
+                    : "bg-white/20 text-white hover:bg-white/30 backdrop-blur-sm"
+                }`}
+              >
+                {t("calendarPage.month")}
+              </Button>
+              <Button
+                variant={viewMode === "week" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode("week")}
+                className={`transition-all duration-300 ${
+                  viewMode === "week" 
+                    ? "bg-white text-purple-600 hover:bg-white/90 shadow-lg" 
+                    : "bg-white/20 text-white hover:bg-white/30 backdrop-blur-sm"
+                }`}
+              >
+                {t("calendarPage.week")}
+              </Button>
+              <Button
+                variant={viewMode === "day" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode("day")}
+                className={`transition-all duration-300 ${
+                  viewMode === "day" 
+                    ? "bg-white text-purple-600 hover:bg-white/90 shadow-lg" 
+                    : "bg-white/20 text-white hover:bg-white/30 backdrop-blur-sm"
+                }`}
+              >
+                {t("calendarPage.day")}
+              </Button>
+            </div>
           </div>
         </div>
 
+        {/* Filter buttons */}
         <div className="flex gap-2 flex-wrap">
           <Button
             variant={filterMode === "all" ? "default" : "outline"}
             onClick={() => setFilterMode("all")}
             size="sm"
+            className={`transition-all duration-300 ${
+              filterMode === "all"
+                ? "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-lg shadow-purple-500/30"
+                : "hover:scale-105 hover:shadow-md"
+            }`}
           >
-            Tasks Assigned
+            {t("calendarPage.filterAssigned")}
           </Button>
           <Button
             variant={filterMode === "completed" ? "default" : "outline"}
             onClick={() => setFilterMode("completed")}
             size="sm"
+            className={`transition-all duration-300 ${
+              filterMode === "completed"
+                ? "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 shadow-lg shadow-emerald-500/30"
+                : "hover:scale-105 hover:shadow-md"
+            }`}
           >
             <CheckCircle2 className="w-4 h-4 mr-1" />
-            Completed
+            {t("calendarPage.filterCompleted")}
           </Button>
           <Button
             variant={filterMode === "in_progress" ? "default" : "outline"}
             onClick={() => setFilterMode("in_progress")}
             size="sm"
+            className={`transition-all duration-300 ${
+              filterMode === "in_progress"
+                ? "bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-500/30"
+                : "hover:scale-105 hover:shadow-md"
+            }`}
           >
             <Clock className="w-4 h-4 mr-1" />
-            In Progress
+            {t("calendarPage.filterInProgress")}
           </Button>
           <Button
             variant={filterMode === "urgent" ? "default" : "outline"}
             onClick={() => setFilterMode("urgent")}
             size="sm"
+            className={`transition-all duration-300 ${
+              filterMode === "urgent"
+                ? "bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 shadow-lg shadow-orange-500/30"
+                : "hover:scale-105 hover:shadow-md"
+            }`}
           >
             <AlertCircle className="w-4 h-4 mr-1" />
-            Urgent
+            {t("calendarPage.filterUrgent")}
           </Button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Calendar */}
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Task Calendar</CardTitle>
+          <Card className="lg:col-span-2 border-0 shadow-xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 rounded-2xl overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 border-b">
+              <CardTitle className="text-xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                {t("calendarPage.taskCalendar")}
+              </CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col items-center">
+            <CardContent className="flex flex-col items-center p-6">
               <Calendar
                 mode="single"
                 selected={date}
-                onSelect={setDate}
+                onSelect={(selectedDate) => {
+                  setDate(selectedDate);
+                  if (selectedDate) {
+                    const filtered = tasks
+                      .filter((t) => isSameDay(new Date(t.deadline), selectedDate))
+                      .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
+                    setSelectedDateTasks(filtered);
+                  } else {
+                    setSelectedDateTasks([]);
+                  }
+                }}
                 modifiers={modifiers}
                 modifiersStyles={modifiersStyles}
-                className="rounded-md border pointer-events-auto"
+                className="rounded-xl border-0 shadow-sm"
               />
               
-              <div className="mt-4 space-y-2 text-sm w-full max-w-xs">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: 'hsl(var(--primary))' }} />
-                  <span>Tasks assigned</span>
+              <div className="mt-6 space-y-3 text-sm w-full max-w-xs bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-xl">
+                <div className="flex items-center gap-3 group cursor-default transition-all duration-300 hover:translate-x-1">
+                  <div className="w-5 h-5 rounded-full shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:shadow-md bg-primary" />
+                  <span className="font-medium">{t("calendarPage.legendAssigned")}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: 'hsl(var(--success))' }} />
-                  <span>All completed</span>
+                <div className="flex items-center gap-3 group cursor-default transition-all duration-300 hover:translate-x-1">
+                  <div className="w-5 h-5 rounded-full shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:shadow-md bg-success" />
+                  <span className="font-medium">{t("calendarPage.legendCompleted")}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: 'hsl(var(--destructive))' }} />
-                  <span>Deadline missed</span>
+                <div className="flex items-center gap-3 group cursor-default transition-all duration-300 hover:translate-x-1">
+                  <div className="w-5 h-5 rounded-full shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:shadow-md bg-destructive" />
+                  <span className="font-medium">{t("calendarPage.legendMissed")}</span>
                 </div>
               </div>
             </CardContent>
@@ -278,86 +335,87 @@ const CalendarView = () => {
 
           {/* Tasks List */}
           <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">
-                  {filterMode === "all" && "Tasks Assigned This Month"}
-                  {filterMode === "completed" && "Completed Tasks"}
-                  {filterMode === "in_progress" && "In Progress"}
-                  {filterMode === "urgent" && "Urgent Tasks"}
+            <Card className="border-0 shadow-xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 rounded-2xl overflow-hidden">
+              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b">
+                <CardTitle className="text-lg bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                  {date ? t("calendarPage.tasksOnDate", { date: format(date, "MMM d, yyyy") }) : t("calendarPage.selectDate")}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4">
                 {(() => {
-                  const filteredTasks = getFilteredTasks();
+                  // Only show tasks for the selected date
+                  const filteredTasks = selectedDateTasks;
                   const inProgressTasks = filteredTasks.filter(t => t.status !== "completed");
                   const completedTasks = filteredTasks.filter(t => t.status === "completed");
-                  
+
                   if (filteredTasks.length === 0) {
-                    return <p className="text-muted-foreground text-sm">No tasks found</p>;
+                    return (
+                      <div className="text-center py-12">
+                        <div className="inline-block p-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full mb-4">
+                          <CalendarIcon className="w-12 h-12 text-gray-400" />
+                        </div>
+                        <p className="text-muted-foreground text-sm font-medium">{t("calendarPage.emptyTitle")}</p>
+                        <p className="text-muted-foreground text-xs mt-1">{t("calendarPage.emptySubtitle")}</p>
+                      </div>
+                    );
                   }
                   
                   return (
                     <div className="space-y-6">
                       {inProgressTasks.length > 0 && (
                         <div className="space-y-3">
-                          <h3 className="font-semibold text-base">In Progress</h3>
+                          <h3 className="font-semibold text-base bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                            {t("calendarPage.inProgress")}
+                          </h3>
                           {inProgressTasks.map((task) => (
                             <div
                               key={task.id}
-                              className="p-3 border rounded-lg hover:bg-muted/50 transition-colors space-y-2"
+                              className="p-4 border-0 rounded-xl bg-gradient-to-br from-white to-gray-50 hover:from-blue-50 hover:to-purple-50 transition-all duration-300 hover:shadow-lg hover:scale-[1.02] space-y-2"
                             >
-                              <div className="flex items-start justify-between">
-                                <h4 className="font-medium text-sm">{task.title}</h4>
-                                <Badge className={getTaskColor(task)}>
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="font-semibold text-sm">{task.title}</h4>
+                                <Badge className={`${getTaskColor(task)} transition-all duration-300 hover:scale-105`}>
                                   {task.status}
                                 </Badge>
                               </div>
                               {task.description && (
-                                <p className="text-xs text-muted-foreground">
+                              <p className="text-xs text-muted-foreground line-clamp-2">
                                   {task.description}
                                 </p>
                               )}
                               <p className="text-xs">
-                                <span className="font-semibold">Deadline:</span>{" "}
+                                <span className="font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">{t("calendarPage.deadline")}:</span>{" "}
                                 {format(new Date(task.deadline), "MMM d, yyyy HH:mm")}
                               </p>
                               {task.estimated_completion_hours && (
                                 <p className="text-xs text-muted-foreground">
-                                  Estimated: {task.estimated_completion_hours} hours
+                                  {t("calendarPage.estimated")} {formatEstimatedTime(task.estimated_completion_hours)}
                                 </p>
                               )}
                               {task.decline_reason && (
-                                <div className="mt-2 p-2 bg-destructive/10 rounded-md">
-                                  <p className="text-xs font-semibold text-destructive">Cannot Complete:</p>
-                                  <p className="text-xs text-muted-foreground">{task.decline_reason}</p>
+                                <div className="mt-2 p-3 bg-gradient-to-br from-red-50 to-rose-100 rounded-lg border border-red-200">
+                                  <p className="text-xs font-semibold text-red-700">{t("calendarPage.cannotComplete")}</p>
+                                  <p className="text-xs text-red-600 mt-1">{task.decline_reason}</p>
                                 </div>
                               )}
-                              <div className="flex gap-1 flex-wrap">
+                              <div className="flex gap-2 flex-wrap pt-2">
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => handleTaskClick(task)}
-                                  className="h-7 text-xs"
+                                  onClick={() => navigate(`/task/${task.id}`)}
+                                  className="h-8 text-xs transition-all duration-300 hover:scale-105 hover:shadow-md hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50"
                                 >
-                                  View
+                                  {t("calendarPage.view")}
                                 </Button>
+
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   onClick={() => setEstimatingTask(task)}
-                                  className="h-7 text-xs"
+                                  className="h-8 text-xs transition-all duration-300 hover:scale-105 hover:shadow-md hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50"
                                 >
                                   <Clock className="w-3 h-3 mr-1" />
-                                  Set Time
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => setDecliningTask(task)}
-                                  className="h-7 text-xs"
-                                >
-                                  Cannot Complete
+                                  {t("calendarPage.setTime")}
                                 </Button>
                               </div>
                             </div>
@@ -367,31 +425,38 @@ const CalendarView = () => {
                       
                       {completedTasks.length > 0 && (
                         <div className="space-y-3">
-                          <h3 className="font-semibold text-base">Completed</h3>
+                          <h3 className="font-semibold text-base bg-gradient-to-r from-emerald-600 to-green-600 bg-clip-text text-transparent">
+                            {t("calendarPage.completed")}
+                          </h3>
                           {completedTasks.map((task) => (
                             <div
                               key={task.id}
-                              className="p-3 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+                              className="p-4 border-0 rounded-xl bg-gradient-to-br from-emerald-50 to-green-50 hover:from-emerald-100 hover:to-green-100 cursor-pointer transition-all duration-300 hover:shadow-lg hover:scale-[1.02]"
                               onClick={() => handleTaskClick(task)}
                             >
-                              <div className="flex items-start justify-between">
-                                <h4 className="font-medium text-sm flex items-center gap-1">
-                                  <CheckCircle2 className="w-4 h-4 text-success" />
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="font-semibold text-sm flex items-center gap-2">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                                   {task.title}
                                 </h4>
-                                <Badge className={getTaskColor(task)}>
+                                <Badge className={`${getTaskColor(task)} transition-all duration-300 hover:scale-105`}>
                                   {task.status}
                                 </Badge>
                               </div>
                               {task.description && (
-                                <p className="text-xs text-muted-foreground mt-1">
+                                <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
                                   {task.description}
                                 </p>
                               )}
-                              <p className="text-xs mt-1">
-                                <span className="font-semibold">Completed:</span>{" "}
+                              <p className="text-xs mt-2">
+                                <span className="font-semibold text-emerald-700">{t("calendarPage.completedLabel")}:</span>{" "}
                                 {format(new Date(task.deadline), "MMM d, yyyy")}
                               </p>
+                              {task.estimated_completion_hours && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {t("calendarPage.estimated")} {formatEstimatedTime(task.estimated_completion_hours)}
+                                </p>
+                              )}
                             </div>
                           ))}
                         </div>

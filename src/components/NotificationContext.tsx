@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authJwt } from "@/lib/auth";
 
 interface NotificationContextType {
   unreadCount: number;
@@ -16,42 +17,36 @@ const NotificationContext = createContext<NotificationContextType>({
 export const NotificationProvider = ({ children }: { children: React.ReactNode }) => {
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // 🔁 Fetch unread count
+  // 🔁 Fetch unread count (faqat foydalanuvchiga tayinlangan tasklar)
   const refreshUnread = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const userId = authJwt.getUserId();
+      if (!userId) return;
 
-      const { data: readStatuses } = await supabase
-        .from("notification_reads")
-        .select("notification_type, notification_id")
-        .eq("user_id", user.id);
+      const readStatuses = await api.notifications.reads();
 
       const readSet = new Set(
-        readStatuses?.map(r => `${r.notification_type}-${r.notification_id}`) || []
+        (readStatuses || []).map((r: any) => `${r.notificationType}-${r.notificationId}`)
       );
 
       let count = 0;
 
-      // Count unread task assignments
-      const { data: taskAssignments } = await supabase
-        .from("task_assignments")
-        .select("task_id")
-        .eq("user_id", user.id);
+      // Count unread task assignments (foydalanuvchiga tayinlangan tasklar)
+      const assignedTasks = await api.tasks.list({ all: false });
 
-      taskAssignments?.forEach((assignment) => {
-        if (!readSet.has(`task-${assignment.task_id}`)) count++;
+      assignedTasks?.forEach((task: any) => {
+        if (!readSet.has(`task-${task.id}`)) count++;
       });
 
-      // Count unread invitations
-      const { data: invitations } = await supabase
-        .from("organization_invitations")
-        .select("id")
-        .eq("employee_id", user.id)
-        .eq("status", "pending");
+      // Count tasks you assigned that are completed (assigner uchun xabar)
+      const completedTasks = await api.tasks.list({
+        all: true,
+        status: "completed",
+        assignedById: userId,
+      });
 
-      invitations?.forEach((invitation) => {
-        if (!readSet.has(`invitation-${invitation.id}`)) count++;
+      completedTasks?.forEach((task: any) => {
+        if (!readSet.has(`task_completed-${task.id}`)) count++;
       });
 
       setUnreadCount(count);
@@ -64,23 +59,9 @@ export const NotificationProvider = ({ children }: { children: React.ReactNode }
   useEffect(() => {
     refreshUnread();
 
-    const channel = supabase
-      .channel("realtime-notifications")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "task_assignments" },
-        () => refreshUnread()
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "organization_invitations" },
-        () => refreshUnread()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const onFocus = () => refreshUnread();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   return (

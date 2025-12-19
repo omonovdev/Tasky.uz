@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle2, Building2, User, Briefcase, FileText, Clock } from "lucide-react";
 
@@ -52,22 +52,11 @@ export default function AcceptInvitation() {
   const checkInvitation = async () => {
     try {
       setFetching(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        navigate("/auth");
-        return;
-      }
 
-      // Fetch invitation
-      const { data: invData, error: invError } = await supabase
-        .from("organization_invitations")
-        .select("*")
-        .eq("id", invitationId)
-        .eq("employee_id", user.id)
-        .eq("status", "pending")
-        .single();
+      const invitations = await api.organizations.myInvitations("pending");
+      const invData = (invitations || []).find((inv: any) => inv.id === invitationId);
 
-      if (invError || !invData) {
+      if (!invData) {
         toast({
           title: "Invalid Invitation",
           description: "This invitation is no longer valid or has already been processed.",
@@ -77,42 +66,30 @@ export default function AcceptInvitation() {
         return;
       }
 
-      setInvitation(invData);
+      setInvitation({
+        id: invData.id,
+        organization_id: invData.organizationId,
+        status: invData.status,
+        invitation_message: invData.invitationMessage,
+        contract_duration: invData.contractDuration,
+      });
 
-      // Fetch organization details
-      const { data: orgData, error: orgError } = await supabase
-        .from("organizations")
-        .select("*")
-        .eq("id", invData.organization_id)
-        .single();
+      const orgData = invData.organization;
+      setOrganization({
+        id: orgData.id,
+        name: orgData.name,
+        agreement_text: orgData.agreementText,
+        agreement_version: orgData.agreementVersion || 0,
+        photo_url: orgData.photoUrl || null,
+      });
 
-      if (orgError) throw orgError;
-      setOrganization(orgData);
-
-      // Fetch employer details
-      const { data: memberData, error: memberError } = await supabase
-        .from("organization_members")
-        .select(`
-          position,
-          profiles:user_id (
-            first_name,
-            last_name
-          )
-        `)
-        .eq("organization_id", invData.organization_id)
-        .eq("user_id", orgData.created_by)
-        .single();
-
-      if (memberError) throw memberError;
-      
-      if (memberData && memberData.profiles) {
-        const profile = Array.isArray(memberData.profiles) 
-          ? memberData.profiles[0] 
-          : memberData.profiles;
+      const members = await api.organizations.members(orgData.id);
+      const creatorMember = (members || []).find((m: any) => m.userId === orgData.createdBy);
+      if (creatorMember?.user) {
         setEmployer({
-          first_name: profile.first_name,
-          last_name: profile.last_name,
-          position: memberData.position,
+          first_name: creatorMember.user.firstName,
+          last_name: creatorMember.user.lastName,
+          position: creatorMember.position || null,
         });
       }
     } catch (error: any) {
@@ -133,32 +110,8 @@ export default function AcceptInvitation() {
 
     try {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
 
-      // Update invitation status
-      const { error: invError } = await supabase
-        .from("organization_invitations")
-        .update({ 
-          status: "accepted",
-          accepted_at: new Date().toISOString()
-        })
-        .eq("id", invitation.id);
-
-      if (invError) throw invError;
-
-      // Add user to organization members
-      const { error: memberError } = await supabase
-        .from("organization_members")
-        .insert({
-          organization_id: organization.id,
-          user_id: user.id,
-          added_by: user.id,
-          agreement_accepted_at: new Date().toISOString(),
-          agreement_version_accepted: organization.agreement_version,
-        });
-
-      if (memberError) throw memberError;
+      await api.organizations.acceptInvitation(invitation.id);
 
       // Set this as selected organization
       localStorage.setItem("selectedOrganizationId", organization.id);
@@ -186,12 +139,7 @@ export default function AcceptInvitation() {
 
     try {
       setLoading(true);
-      const { error } = await supabase
-        .from("organization_invitations")
-        .update({ status: "declined" })
-        .eq("id", invitation.id);
-
-      if (error) throw error;
+      await api.organizations.declineInvitation(invitation.id);
 
       toast({
         title: "Invitation Declined",

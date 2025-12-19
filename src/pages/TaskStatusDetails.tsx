@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authJwt } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -45,6 +46,7 @@ import EditTaskDialog from "@/components/EditTaskDialog";
 import TaskReportsDialog from "@/components/TaskReportsDialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 interface Task {
   id: string;
@@ -71,6 +73,7 @@ const TaskStatusDetails = () => {
   const { organizationId, status } = useParams<{ organizationId: string; status: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [groupedTasks, setGroupedTasks] = useState<GroupedTasks>({});
   const [loading, setLoading] = useState(true);
@@ -79,75 +82,37 @@ const TaskStatusDetails = () => {
   const [deletingTask, setDeletingTask] = useState<string | null>(null);
   const [hoveredTask, setHoveredTask] = useState<string | null>(null);
 
+  const formatEstimatedTime = (minutes?: number | null) => {
+    if (!minutes) return null;
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hrs === 0) return `${mins}m`;
+    if (mins === 0) return `${hrs}h`;
+    return `${hrs}h ${mins}m`;
+  };
+
   useEffect(() => {
     fetchTasks();
-
-    const channel = supabase
-      .channel('task-status-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `organization_id=eq.${organizationId}`
-        },
-        () => {
-          fetchTasks();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [organizationId, status]);
 
   const fetchTasks = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      let query = supabase
-        .from('tasks')
-        .select(`
-          id,
-          title,
-          description,
-          deadline,
-          status,
-          assigned_to,
-          assigned_by,
-          created_at,
-          last_edited_by,
-          last_edited_at,
-          decline_reason,
-          estimated_completion_hours
-        `)
-        .eq('organization_id', organizationId)
-        .eq('assigned_by', user.id)
-        .order('deadline', { ascending: true });
-
-      if (status === 'completed') {
-        query = query.eq('status', 'completed');
-      } else if (status === 'in_progress') {
-        query = query.in('status', ['pending', 'in_progress']);
-      } else if (status === 'urgent') {
-        query = query.neq('status', 'completed');
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        toast({
-          title: "Error",
-          description: "Failed to load tasks",
-          variant: "destructive",
-        });
+      const userId = authJwt.getUserId();
+      if (!userId) return;
+      if (!organizationId || organizationId.startsWith("11111111-")) {
+        setTasks([]);
+        setGroupedTasks({});
+        setLoading(false);
         return;
       }
 
-      let filteredData = data || [];
+      const rawTasks = await api.tasks.list({
+        organizationId,
+        all: true,
+        assignedById: userId,
+      });
+
+      let filteredData = rawTasks || [];
 
       if (status === 'urgent') {
         const now = new Date();
@@ -155,57 +120,63 @@ const TaskStatusDetails = () => {
           if (!task.deadline) return false;
           const deadline = new Date(task.deadline);
           const hoursLeft = (deadline.getTime() - now.getTime()) / (1000 * 60 * 60);
-          return hoursLeft < 72 && hoursLeft > 0;
+          return task.status !== "completed" && hoursLeft < 72 && hoursLeft > 0;
         });
+      } else if (status === "completed") {
+        filteredData = filteredData.filter((t: any) => t.status === "completed");
+      } else if (status === "in_progress") {
+        filteredData = filteredData.filter((t: any) => t.status === "pending" || t.status === "in_progress");
       }
 
-      const tasksWithNames = await Promise.all(
-        filteredData.map(async (task) => {
-          const { data: assignments } = await supabase
-            .from('task_assignments')
-            .select('user_id')
-            .eq('task_id', task.id);
-          
-          const assigneeIds = assignments?.map(a => a.user_id) || [task.assigned_to];
-          
-          const { data: profiles } = await supabase
-            .from('profiles')
-            .select('first_name, last_name')
-            .in('id', assigneeIds);
-          
-          const names = profiles?.map(p => `${p.first_name} ${p.last_name}`).join(', ') || 'Unknown';
-          
-          const { data: assignerProfile } = await supabase
-            .from('profiles')
-            .select('first_name, last_name')
-            .eq('id', task.assigned_by)
-            .single();
-          
-          const assignerName = assignerProfile 
-            ? `${assignerProfile.first_name} ${assignerProfile.last_name}`
-            : 'Unknown';
-          
-          let editorName = undefined;
-          if (task.last_edited_by) {
-            const { data: editorProfile } = await supabase
-              .from('profiles')
-              .select('first_name, last_name')
-              .eq('id', task.last_edited_by)
-              .single();
-            
-            editorName = editorProfile 
-              ? `${editorProfile.first_name} ${editorProfile.last_name}`
-              : 'Unknown';
+      const tasksWithNames: Task[] = filteredData
+        .sort((a: any, b: any) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
+        .map((task: any) => {
+          const assigneeUsers = (task.assignments || [])
+            .map((a: any) => a.user)
+            .filter(Boolean);
+          const namesFromAssignments = assigneeUsers
+            .map((u: any) => `${u.firstName || ""} ${u.lastName || ""}`.trim())
+            .filter(Boolean)
+            .join(", ");
+          const assignedToName = task.assignedTo
+            ? `${task.assignedTo.firstName || ""} ${task.assignedTo.lastName || ""}`.trim()
+            : "";
+          const assignedToNames = namesFromAssignments || assignedToName || "Unknown";
+
+          const assignedByName = task.assignedBy
+            ? `${task.assignedBy.firstName || ""} ${task.assignedBy.lastName || ""}`.trim()
+            : "Unknown";
+
+          let editorName: string | undefined = undefined;
+          if (task.lastEditedBy) {
+            const candidates = [
+              task.assignedBy,
+              task.assignedTo,
+              ...assigneeUsers,
+            ].filter(Boolean);
+            const found = candidates.find((u: any) => u.id === task.lastEditedBy);
+            if (found) {
+              editorName = `${found.firstName || ""} ${found.lastName || ""}`.trim() || undefined;
+            }
           }
-          
+
           return {
-            ...task,
-            assigned_to_name: names,
-            assigned_by_name: assignerName,
+            id: task.id,
+            title: task.title,
+            description: task.description || "",
+            deadline: task.deadline,
+            status: task.status,
+            assigned_to: task.assignedToId,
+            assigned_to_name: assignedToNames,
+            assigned_by_name: assignedByName,
+            created_at: task.createdAt,
+            last_edited_by: task.lastEditedBy ?? undefined,
+            last_edited_at: task.lastEditedAt ?? undefined,
             last_edited_by_name: editorName,
+            decline_reason: task.declineReason ?? null,
+            estimated_completion_hours: task.estimatedCompletionHours ?? null,
           };
-        })
-      );
+        });
 
       setTasks(tasksWithNames);
       groupTasksByMonth(tasksWithNames);
@@ -238,21 +209,21 @@ const TaskStatusDetails = () => {
     if (totalMinutes < 0) {
       const overdueDays = Math.floor(Math.abs(totalMinutes) / (60 * 24));
       const overdueHours = Math.floor(Math.abs(totalMinutes) / 60);
-      if (overdueDays > 0) return `Overdue by ${overdueDays} day${overdueDays > 1 ? 's' : ''}`;
-      return `Overdue by ${overdueHours} hour${overdueHours > 1 ? 's' : ''}`;
+      if (overdueDays > 0) return t("taskStatusDetails.time.overdueDays", { count: overdueDays });
+      return t("taskStatusDetails.time.overdueHours", { count: overdueHours });
     }
     
     if (totalMinutes < 60) {
-      return `${totalMinutes} minute${totalMinutes !== 1 ? 's' : ''} left`;
+      return t("taskStatusDetails.time.minutesLeft", { count: totalMinutes });
     }
     
     const totalHours = Math.floor(totalMinutes / 60);
     if (totalHours < 24) {
-      return `${totalHours} hour${totalHours !== 1 ? 's' : ''} left`;
+      return t("taskStatusDetails.time.hoursLeft", { count: totalHours });
     }
     
     const totalDays = Math.floor(totalHours / 24);
-    return `${totalDays} day${totalDays !== 1 ? 's' : ''} left`;
+    return t("taskStatusDetails.time.daysLeft", { count: totalDays });
   };
 
   const getCompletionPercentage = (status: string) => {
@@ -279,23 +250,20 @@ const TaskStatusDetails = () => {
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    const { error } = await supabase
-      .from('tasks')
-      .delete()
-      .eq('id', taskId);
-
-    if (error) {
+    try {
+      await api.tasks.delete(taskId);
+    } catch {
       toast({
-        title: "Error",
-        description: "Failed to delete task",
+        title: t("common.error"),
+        description: t("taskStatusDetails.deleteError"),
         variant: "destructive",
       });
       return;
     }
 
     toast({
-      title: "Success",
-      description: "Task deleted successfully",
+      title: t("common.success"),
+      description: t("taskStatusDetails.deleteSuccess"),
     });
 
     setDeletingTask(null);
@@ -306,7 +274,7 @@ const TaskStatusDetails = () => {
     switch (status) {
       case 'completed':
         return {
-          label: 'Completed Tasks',
+          label: t("taskStatusDetails.headers.completed"),
           icon: CheckCircle2,
           color: 'text-success',
           bgGradient: 'from-success/10 via-success/5 to-transparent',
@@ -315,7 +283,7 @@ const TaskStatusDetails = () => {
         };
       case 'in_progress':
         return {
-          label: 'In Progress Tasks',
+          label: t("taskStatusDetails.headers.inProgress"),
           icon: Clock,
           color: 'text-primary',
           bgGradient: 'from-primary/10 via-primary/5 to-transparent',
@@ -324,7 +292,7 @@ const TaskStatusDetails = () => {
         };
       case 'urgent':
         return {
-          label: 'Urgent Tasks',
+          label: t("taskStatusDetails.headers.urgent"),
           icon: Flame,
           color: 'text-destructive',
           bgGradient: 'from-destructive/10 via-destructive/5 to-transparent',
@@ -333,7 +301,7 @@ const TaskStatusDetails = () => {
         };
       default:
         return {
-          label: 'All Tasks',
+          label: t("taskStatusDetails.headers.all"),
           icon: Target,
           color: 'text-muted-foreground',
           bgGradient: 'from-muted/10 to-transparent',
@@ -354,7 +322,7 @@ const TaskStatusDetails = () => {
             <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-primary mx-auto"></div>
             <Sparkles className="h-6 w-6 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
           </div>
-          <p className="text-muted-foreground animate-pulse">Loading tasks...</p>
+          <p className="text-muted-foreground animate-pulse">{t("taskStatusDetails.loading")}</p>
         </div>
       </div>
     );
@@ -392,11 +360,11 @@ const TaskStatusDetails = () => {
                   {statusConfig.label}
                 </h1>
                 <p className="text-muted-foreground text-lg mt-1">
-                  Viewing {tasks.length} task{tasks.length !== 1 ? 's' : ''}
+                  {t("taskStatusDetails.viewingCount", { count: tasks.length })}
                 </p>
               </div>
               <Badge className={cn("px-4 py-2 text-base font-semibold animate-pulse", statusConfig.badge)}>
-                {tasks.length} Total
+                {t("taskStatusDetails.total", { count: tasks.length })}
               </Badge>
             </div>
           </div>
@@ -410,9 +378,9 @@ const TaskStatusDetails = () => {
               <div className="inline-block p-6 bg-muted/10 rounded-2xl mb-6 animate-pulse">
                 <StatusIcon className={cn("h-20 w-20", statusConfig.color)} />
               </div>
-              <h3 className="text-2xl font-bold mb-2">No tasks found</h3>
+              <h3 className="text-2xl font-bold mb-2">{t("taskStatusDetails.emptyTitle")}</h3>
               <p className="text-muted-foreground text-lg">
-                There are no {status === 'all' ? '' : status.replace('_', ' ')} tasks at the moment.
+                {t("taskStatusDetails.emptySubtitle", { status: status === 'all' ? t("taskStatusDetails.statusGeneric") : status.replace('_', ' ') })}
               </p>
               <Button 
                 onClick={() => navigate('/dashboard')}
@@ -420,7 +388,7 @@ const TaskStatusDetails = () => {
                 variant="outline"
               >
                 <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Dashboard
+                {t("taskStatusDetails.backToDashboard")}
               </Button>
             </CardContent>
           </Card>
@@ -441,7 +409,7 @@ const TaskStatusDetails = () => {
                     {month}
                   </h3>
                   <Badge variant="secondary" className="ml-auto">
-                    {monthTasks.length} task{monthTasks.length !== 1 ? 's' : ''}
+                    {t("taskStatusDetails.monthCount", { count: monthTasks.length })}
                   </Badge>
                 </div>
 
@@ -524,25 +492,25 @@ const TaskStatusDetails = () => {
                                 </div>
                                 <div className="flex items-center gap-1.5 px-2 py-1 bg-background/50 rounded-md border">
                                   <Calendar className="h-3 w-3 text-muted-foreground" />
-                                  <span>By: {task.assigned_by_name}</span>
+                                  <span>{t("taskStatusDetails.byLabel", { name: task.assigned_by_name })}</span>
                                 </div>
-                                <div className="flex items-center gap-1.5 px-2 py-1 bg-background/50 rounded-md border">
-                                  <Clock className="h-3 w-3 text-muted-foreground" />
-                                  <span>{format(new Date(task.created_at), 'MMM dd HH:mm')}</span>
-                                </div>
+                             <div className="flex items-center gap-1.5 px-2 py-1 bg-background/50 rounded-md border">
+                                <Clock className="h-3 w-3 text-muted-foreground" />
+                                <span>{format(new Date(task.created_at), 'MMM dd HH:mm')}</span>
+                              </div>
                                 {task.estimated_completion_hours && (
                                   <div className="flex items-center gap-1.5 px-2 py-1 bg-primary/10 rounded-md border border-primary/20">
                                     <Clock className="h-3 w-3 text-primary" />
-                                    <span className="font-semibold text-primary">{task.estimated_completion_hours}h</span>
+                                    <span className="font-semibold text-primary">{formatEstimatedTime(task.estimated_completion_hours)}</span>
                                   </div>
                                 )}
                               </div>
 
-                              {/* Last Edited Info */}
-                              {task.last_edited_by_name && task.last_edited_at && (
+                              {/* Last Edited Info (hide for completed tasks) */}
+                              {task.status !== 'completed' && task.last_edited_by_name && task.last_edited_at && (
                                 <div className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 rounded-md border border-amber-500/20 w-fit">
                                   <TrendingUp className="h-3 w-3" />
-                                  <span>Edited by: {task.last_edited_by_name} on {format(new Date(task.last_edited_at), 'MMM dd HH:mm')}</span>
+                                  <span>{t("taskStatusDetails.editedByOn", { name: task.last_edited_by_name, date: format(new Date(task.last_edited_at), 'MMM dd HH:mm') })}</span>
                                 </div>
                               )}
                             </div>
@@ -562,17 +530,17 @@ const TaskStatusDetails = () => {
                                 </div>
                                 {task.status === 'pending' && (
                                   <Badge variant="pending" className="animate-in zoom-in">
-                                    Pending
+                                    {t("taskStatusDetails.statusBadge.pending")}
                                   </Badge>
                                 )}
                                 {task.status === 'in_progress' && (
                                   <Badge variant="inProgress" className="animate-in zoom-in">
-                                    Progress
+                                    {t("taskStatusDetails.statusBadge.inProgress")}
                                   </Badge>
                                 )}
                                 {task.status === 'completed' && (
                                   <Badge variant="completed" className="animate-in zoom-in">
-                                    Completed
+                                    {t("taskStatusDetails.statusBadge.completed")}
                                   </Badge>
                                 )}
                               </div>
@@ -590,18 +558,18 @@ const TaskStatusDetails = () => {
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setViewingReports(task.id); }}>
                                     <FileText className="h-4 w-4 mr-2" />
-                                    View Reports
+                                    {t("taskStatusDetails.actions.viewReports")}
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditingTask(task.id); }}>
                                     <Edit className="h-4 w-4 mr-2" />
-                                    Edit
+                                    {t("taskStatusDetails.actions.edit")}
                                   </DropdownMenuItem>
                                   <DropdownMenuItem 
                                     onClick={(e) => { e.stopPropagation(); setDeletingTask(task.id); }}
                                     className="text-destructive"
                                   >
                                     <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete
+                                    {t("taskStatusDetails.actions.delete")}
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -612,7 +580,7 @@ const TaskStatusDetails = () => {
                           {task.status !== 'completed' && (
                             <div className="space-y-2">
                               <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground font-medium">Time Remaining</span>
+                                <span className="text-muted-foreground font-medium">{t("taskStatusDetails.timeRemainingLabel")}</span>
                                 <span className={cn(
                                   "font-bold text-base px-2 py-0.5 rounded-md",
                                   urgency === 'overdue' && "text-destructive bg-destructive/10",
@@ -632,7 +600,7 @@ const TaskStatusDetails = () => {
                             <div className="flex gap-2 p-3 bg-destructive/10 border-l-4 border-destructive rounded-r-lg animate-in slide-in-from-left-2">
                               <XCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
                               <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold text-destructive">Cannot Complete</p>
+                                <p className="text-xs font-semibold text-destructive">{t("taskStatusDetails.cannotComplete")}</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">{task.decline_reason}</p>
                               </div>
                             </div>
@@ -641,7 +609,7 @@ const TaskStatusDetails = () => {
                           {/* Task Progress */}
                           <div className="space-y-1.5">
                             <div className="flex items-center justify-between text-xs">
-                              <span className="text-muted-foreground font-medium">Task Completion</span>
+                              <span className="text-muted-foreground font-medium">{t("taskStatusDetails.taskCompletion")}</span>
                               <span className="font-bold">{completionPercentage}%</span>
                             </div>
                             <Progress 
@@ -684,18 +652,18 @@ const TaskStatusDetails = () => {
         <AlertDialog open={!!deletingTask} onOpenChange={(open) => !open && setDeletingTask(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete Task</AlertDialogTitle>
+              <AlertDialogTitle>{t("taskStatusDetails.deleteTitle")}</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete this task? This action cannot be undone.
+                {t("taskStatusDetails.deleteDesc")}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => deletingTask && handleDeleteTask(deletingTask)}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
-                Delete
+                {t("taskStatusDetails.actions.delete")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

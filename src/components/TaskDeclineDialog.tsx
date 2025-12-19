@@ -3,9 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { XCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface TaskDeclineDialogProps {
   taskId: string;
@@ -23,12 +24,13 @@ export default function TaskDeclineDialog({
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const handleSubmit = async () => {
     if (!reason.trim()) {
       toast({
-        title: "Error",
-        description: "Please provide a reason",
+        title: t("taskDeclineDialog.errorTitle"),
+        description: t("taskDeclineDialog.errorDescRequired"),
         variant: "destructive",
       });
       return;
@@ -36,25 +38,22 @@ export default function TaskDeclineDialog({
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from("tasks")
-        .update({ decline_reason: reason })
-        .eq("id", taskId);
-
-      if (error) throw error;
+      await api.tasks.updateStatus(taskId, { status: "pending", declineReason: reason.trim() });
 
       toast({
-        title: "Success",
-        description: "Reason submitted successfully",
+        title: t("taskDeclineDialog.successTitle"),
+        description: t("taskDeclineDialog.successDesc"),
       });
 
       setReason("");
       onOpenChange(false);
       onDeclineSubmitted();
-    } catch (error: any) {
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t("taskDeclineDialog.errorDescFail");
       toast({
-        title: "Error",
-        description: error.message,
+        title: t("taskDeclineDialog.errorTitle"),
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -68,17 +67,17 @@ export default function TaskDeclineDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <XCircle className="h-5 w-5 text-destructive" />
-            Cannot Complete Task
+            {t("taskDeclineDialog.title")}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="reason">Reason for not completing *</Label>
+            <Label htmlFor="reason">{t("taskDeclineDialog.label")}</Label>
             <Textarea
               id="reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Please explain why you cannot complete this task..."
+              placeholder={t("taskDeclineDialog.placeholder")}
               rows={4}
             />
           </div>
@@ -89,7 +88,7 @@ export default function TaskDeclineDialog({
               disabled={loading}
               className="flex-1"
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleSubmit}
@@ -97,7 +96,7 @@ export default function TaskDeclineDialog({
               className="flex-1"
               variant="destructive"
             >
-              {loading ? "Submitting..." : "Submit Reason"}
+              {loading ? t("taskDeclineDialog.submitting") : t("taskDeclineDialog.submit")}
             </Button>
           </div>
         </div>

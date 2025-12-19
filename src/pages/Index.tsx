@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authState } from "@/lib/auth";
 import Home from "./Home";
-import BottomNav from "@/components/BottomNav";
+
 
 const Index = () => {
   const [loading, setLoading] = useState(true);
@@ -13,37 +14,23 @@ const Index = () => {
   }, []);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
+    if (!authState.isLoggedIn()) {
       navigate("/auth");
-    } else {
-      // Handle Google OAuth callback - set role if pending
-      const pendingRole = sessionStorage.getItem('pending_role');
-      if (pendingRole && session.user) {
-        sessionStorage.removeItem('pending_role');
-        
-        // Check if user_roles already exists
-        const { data: existingRole } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', session.user.id)
-          .maybeSingle();
-
-        if (!existingRole) {
-          // Create role for OAuth user - user_id will be set from auth.uid()
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await supabase.from('user_roles').insert([{
-              user_id: user.id,
-              role: pendingRole as "employee" | "employer",
-            }]);
-          }
-        }
-      }
-      
-      setLoading(false);
+      return;
     }
+
+    // If user selected a role earlier (e.g., during onboarding), persist it.
+    const pendingRole = sessionStorage.getItem("pending_role");
+    if (pendingRole === "employee" || pendingRole === "employer") {
+      sessionStorage.removeItem("pending_role");
+      try {
+        await api.users.setRole({ role: pendingRole });
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    setLoading(false);
   };
 
   if (loading) {

@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { FileText, Upload, X, File, Image as ImageIcon, Video } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface TaskCompletionReportProps {
   taskId: string;
@@ -18,6 +19,7 @@ const TaskCompletionReport = ({ taskId, onReportSubmitted }: TaskCompletionRepor
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -35,8 +37,8 @@ const TaskCompletionReport = ({ taskId, onReportSubmitted }: TaskCompletionRepor
 
     if (!reportText.trim()) {
       toast({
-        title: "Validation Error",
-        description: "Please enter a report",
+        title: t("taskCompletionReport.validationTitle"),
+        description: t("taskCompletionReport.validationDesc"),
         variant: "destructive",
       });
       return;
@@ -45,75 +47,41 @@ const TaskCompletionReport = ({ taskId, onReportSubmitted }: TaskCompletionRepor
     try {
       setIsSubmitting(true);
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("User not authenticated");
+      await api.tasks.updateStatus(taskId, { status: "completed" });
 
-      // Update task status to completed first
-      const { error: statusError } = await supabase
-        .from("tasks")
-        .update({ status: "completed" })
-        .eq("id", taskId);
+      const attachments =
+        files.length > 0
+          ? await Promise.all(
+              files.map(async (file) => {
+                const uploaded = await api.uploads.upload(file, "task_attachments");
+                return {
+                  fileUrl: uploaded.url,
+                  fileName: file.name,
+                  fileType: file.type,
+                  fileSize: file.size,
+                };
+              }),
+            )
+          : [];
 
-      if (statusError) throw statusError;
-
-      // Create report
-      const { data: reportData, error: reportError } = await supabase
-        .from("task_reports")
-        .insert({
-          task_id: taskId,
-          user_id: user.id,
-          report_text: reportText,
-        })
-        .select()
-        .single();
-
-      if (reportError) throw reportError;
-
-      // Upload files if any
-      if (files.length > 0) {
-        const uploadPromises = files.map(async (file) => {
-          const fileExt = file.name.split('.').pop();
-          const fileName = `${user.id}/${Date.now()}-${Math.random()}.${fileExt}`;
-
-          const { error: uploadError } = await supabase.storage
-            .from("task-attachments")
-            .upload(fileName, file);
-
-          if (uploadError) throw uploadError;
-
-          const { data: { publicUrl } } = supabase.storage
-            .from("task-attachments")
-            .getPublicUrl(fileName);
-
-          return {
-            task_report_id: reportData.id,
-            file_url: publicUrl,
-            file_name: file.name,
-            file_type: file.type,
-          };
-        });
-
-        const attachments = await Promise.all(uploadPromises);
-
-        const { error: attachmentError } = await supabase
-          .from("task_attachments")
-          .insert(attachments);
-
-        if (attachmentError) throw attachmentError;
-      }
+      await api.tasks.addReport(taskId, {
+        reportText: reportText.trim(),
+        attachments: attachments.length ? attachments : undefined,
+      });
 
       toast({
-        title: "Success",
-        description: "Report submitted successfully",
+        title: t("taskCompletionReport.successTitle"),
+        description: t("taskCompletionReport.successDesc"),
       });
 
       setReportText("");
       setFiles([]);
       onReportSubmitted();
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("taskCompletionReport.errorDesc");
       toast({
-        title: "Error",
-        description: error.message,
+        title: t("taskCompletionReport.errorTitle"),
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -132,25 +100,26 @@ const TaskCompletionReport = ({ taskId, onReportSubmitted }: TaskCompletionRepor
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileText className="w-5 h-5" />
-          Completion Report
+          {t("taskCompletionReport.title")}
         </CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="report">Report Details</Label>
+            <Label htmlFor="report">{t("taskCompletionReport.detailsLabel")}</Label>
             <Textarea
               id="report"
               value={reportText}
               onChange={(e) => setReportText(e.target.value)}
-              placeholder="Describe what you've completed and any relevant details..."
+              placeholder={t("taskCompletionReport.placeholder")}
               rows={5}
               required
+              className="border-success focus-visible:ring-success focus-visible:border-success"
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="attachments">Attachments</Label>
+            <Label htmlFor="attachments">{t("taskCompletionReport.attachments")}</Label>
             <div className="flex items-center gap-2">
               <Input
                 id="attachments"
@@ -164,12 +133,13 @@ const TaskCompletionReport = ({ taskId, onReportSubmitted }: TaskCompletionRepor
                 type="button"
                 variant="outline"
                 onClick={() => document.getElementById("attachments")?.click()}
+                className="border-success text-success hover:bg-success/10"
               >
                 <Upload className="w-4 h-4 mr-2" />
-                Choose Files
+                {t("taskCompletionReport.chooseFiles")}
               </Button>
               <span className="text-sm text-muted-foreground">
-                {files.length} file(s) selected
+                {t("taskCompletionReport.filesSelected", { count: files.length })}
               </span>
             </div>
 
@@ -198,8 +168,12 @@ const TaskCompletionReport = ({ taskId, onReportSubmitted }: TaskCompletionRepor
             )}
           </div>
 
-          <Button type="submit" disabled={isSubmitting} className="w-full">
-            {isSubmitting ? "Submitting..." : "Submit Report"}
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full bg-success text-success-foreground hover:bg-success/90"
+          >
+            {isSubmitting ? t("taskCompletionReport.submitting") : t("taskCompletionReport.submit")}
           </Button>
         </form>
       </CardContent>

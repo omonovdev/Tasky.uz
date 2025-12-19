@@ -1,6 +1,5 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, useRef } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useEffect, useRef, useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -8,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, CalendarIcon, Search, X, Users, Target, Clock, Sparkles, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
@@ -36,23 +35,21 @@ interface Member {
   avatar_url?: string;
 }
 
-interface Subgroup {
-  id: string;
-  name: string;
-}
-
-interface Goal {
-  id: string;
-  goal_text: string;
-}
-
 interface CreateTaskDialogProps {
-  organizationId: string;
-  onTaskCreated: () => void;
+  organizationId?: string;
+  onTaskCreated?: () => void;
+  onClose?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export default function CreateTaskDialog({ organizationId, onTaskCreated }: CreateTaskDialogProps) {
-  const [open, setOpen] = useState(false);
+export default function CreateTaskDialog({ 
+  organizationId, 
+  onTaskCreated,
+  onClose,
+  open,
+  onOpenChange
+}: CreateTaskDialogProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [goal, setGoal] = useState("");
@@ -77,41 +74,33 @@ export default function CreateTaskDialog({ organizationId, onTaskCreated }: Crea
         return [];
       }
 
-      const { data: orgMembers, error: orgError } = await supabase
-        .from("organization_members")
-        .select("user_id")
-        .eq("organization_id", organizationId);
-
-      if (orgError) throw orgError;
-      if (!orgMembers || orgMembers.length === 0) return [];
-
-      const memberIds = orgMembers.map((m) => m.user_id).filter(Boolean);
-
-      const [profilesRes, assignmentsRes] = await Promise.all([
-        supabase.from("profiles").select("id, first_name, last_name, avatar_url").in("id", memberIds),
-        supabase.from("task_assignments").select("user_id, task_id").in("user_id", memberIds)
+      const [orgMembers, tasks] = await Promise.all([
+        api.organizations.members(organizationId),
+        api.tasks.list({ organizationId, all: true }),
       ]);
 
-      if (profilesRes.error) throw profilesRes.error;
-      if (!profilesRes.data) return [];
-
       const countMap: Record<string, number> = {};
-      assignmentsRes.data?.forEach((a) => {
-        if (a.user_id) countMap[a.user_id] = (countMap[a.user_id] || 0) + 1;
+      (tasks || []).forEach((task: any) => {
+        if (task.status === "completed") return;
+        (task.assignments || []).forEach((a: any) => {
+          if (a.userId) countMap[a.userId] = (countMap[a.userId] || 0) + 1;
+        });
       });
 
-      const formattedMembers: Member[] = profilesRes.data.map((p) => ({
-        user_id: p.id,
-        first_name: p.first_name || "Unknown",
-        last_name: p.last_name || "",
-        avatar_url: p.avatar_url || undefined,
-        assignment_count: countMap[p.id] || 0,
+      const formattedMembers: Member[] = (orgMembers || []).map((m: any) => ({
+        user_id: m.userId,
+        first_name: m.user?.firstName || "Unknown",
+        last_name: m.user?.lastName || "",
+        avatar_url: m.user?.avatarUrl || undefined,
+        assignment_count: countMap[m.userId] || 0,
       }));
 
-      return formattedMembers.sort((a, b) => (a.assignment_count || 0) - (b.assignment_count || 0));
+      return formattedMembers.sort(
+        (a, b) => (a.assignment_count || 0) - (b.assignment_count || 0),
+      );
     },
     staleTime: 30000,
-    enabled: !!organizationId && open,
+    enabled: !!organizationId && !!open,
   });
 
   // Fetch subgroups with caching
@@ -119,32 +108,22 @@ export default function CreateTaskDialog({ organizationId, onTaskCreated }: Crea
     queryKey: ['subgroups', organizationId],
     queryFn: async () => {
       if (!organizationId || organizationId === "undefined") return [];
-      const { data, error } = await supabase
-        .from("subgroups")
-        .select("id, name")
-        .eq("organization_id", organizationId);
-      if (error) throw error;
-      return data || [];
+      const data = await api.subgroups.list(organizationId);
+      return (data || []).map((sg: any) => ({ id: sg.id, name: sg.name }));
     },
     staleTime: 60000,
-    enabled: !!organizationId && open,
+    enabled: !!organizationId && !!open,
   });
 
   // Fetch user goals with caching
   const { data: userGoals = [] } = useQuery({
     queryKey: ['user-goals'],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
-      const { data, error } = await supabase
-        .from("user_goals")
-        .select("id, goal_text")
-        .eq("user_id", user.id);
-      if (error) throw error;
-      return data || [];
+      const data = await api.goals.list();
+      return (data || []).map((g: any) => ({ id: g.id, goal_text: g.goalText }));
     },
     staleTime: 60000,
-    enabled: open,
+    enabled: !!open,
   });
 
   // Filtered search results
@@ -231,84 +210,32 @@ export default function CreateTaskDialog({ organizationId, onTaskCreated }: Crea
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
       const [hours, minutes] = deadlineTime.split(":");
       const finalDeadline = new Date(deadline);
       finalDeadline.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-      const { data: taskData, error: taskError } = await supabase
-        .from("tasks")
-        .insert({
-          organization_id: organizationId,
-          title: title.trim(),
-          description: description.trim() || null,
-          goal: goal && goal !== "custom" ? goal : null,
-          assigned_to: selectedMembers[0],
-          assigned_by: user.id,
-          deadline: finalDeadline.toISOString(),
-          status: "pending",
-        })
-        .select()
-        .single();
-
-      if (taskError) throw taskError;
-
-      let allMemberIds = [...selectedMembers];
-      
-      if (selectedSubgroups.length > 0) {
-        const { data: subgroupMembers } = await supabase
-          .from("subgroup_members")
-          .select("user_id")
-          .in("subgroup_id", selectedSubgroups);
-        
-        if (subgroupMembers && subgroupMembers.length > 0) {
-          const subgroupUserIds = subgroupMembers.map((sm) => sm.user_id).filter(Boolean);
-          allMemberIds = [...new Set([...allMemberIds, ...subgroupUserIds])];
-        }
-      }
-
-      const assignments = allMemberIds.map((id) => ({ 
-        task_id: taskData.id, 
-        user_id: id 
-      }));
-      
-      const { error: assignError } = await supabase
-        .from("task_assignments")
-        .insert(assignments);
-
-      if (assignError) throw assignError;
-
-      if (selectedSubgroups.length > 0) {
-        const subgroupAssignments = selectedSubgroups.map((id) => ({
-          task_id: taskData.id,
-          subgroup_id: id,
-        }));
-        
-        await supabase
-          .from("task_subgroup_assignments")
-          .insert(subgroupAssignments);
-      }
-
-      const stages = [
-        { task_id: taskData.id, title: "Planning", order_index: 1, status: "pending" },
-        { task_id: taskData.id, title: "In Progress", order_index: 2, status: "pending" },
-        { task_id: taskData.id, title: "Review", order_index: 3, status: "pending" },
-        { task_id: taskData.id, title: "Complete", order_index: 4, status: "pending" },
-      ];
-      
-      await supabase.from("task_stages").insert(stages);
+      await api.tasks.create({
+        organizationId,
+        title: title.trim(),
+        description: description.trim() || undefined,
+        goal: goal && goal !== "custom" ? goal : undefined,
+        assignedToId: selectedMembers[0],
+        deadline: finalDeadline.toISOString(),
+        assigneeIds: selectedMembers,
+        subgroupIds: selectedSubgroups,
+      });
 
       toast({ 
         title: "Task Created! 🎉", 
-        description: `Assigned to ${allMemberIds.length} member(s)`,
+        description: `Assigned to ${selectedMembers.length} member(s)`,
       });
 
-      setOpen(false);
+      if (onOpenChange) {
+        onOpenChange(false);
+      }
       resetForm();
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      onTaskCreated();
+      onTaskCreated?.();
 
     } catch (error: any) {
       toast({ 
@@ -322,14 +249,7 @@ export default function CreateTaskDialog({ organizationId, onTaskCreated }: Crea
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
-          <Plus className="w-4 h-4 mr-2" />
-          New Task
-        </Button>
-      </DialogTrigger>
-
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] p-0 gap-0 overflow-hidden flex flex-col">
         {/* Header with gradient */}
         <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-background p-6 border-b flex-shrink-0">
@@ -647,13 +567,15 @@ export default function CreateTaskDialog({ organizationId, onTaskCreated }: Crea
             </div>
           </div>
 
-          {/* Fixed Footer with Buttons - This section is now always visible */}
+          {/* Fixed Footer with Buttons */}
           <div className="flex-shrink-0 p-4 border-t bg-muted/30 flex gap-3 justify-end">
             <Button 
               type="button" 
               variant="outline" 
               onClick={() => {
-                setOpen(false);
+                if (onOpenChange) {
+                  onOpenChange(false);
+                }
                 resetForm();
               }}
               disabled={loading}

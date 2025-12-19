@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { UserPlus } from "lucide-react";
 
@@ -24,14 +24,12 @@ export default function SendInvitationDialog({ organizationId }: SendInvitationD
     try {
       setLoading(true);
 
-      // Find user by email
-      const { data: profiles, error: profileError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("email", email)
-        .single();
+      const results = await api.users.search(email.trim());
+      const profile = (results || []).find(
+        (u: any) => (u.email || "").toLowerCase() === email.trim().toLowerCase(),
+      );
 
-      if (profileError || !profiles) {
+      if (!profile?.id) {
         toast({
           title: "Error",
           description: "User not found with this email",
@@ -40,57 +38,11 @@ export default function SendInvitationDialog({ organizationId }: SendInvitationD
         return;
       }
 
-      // Check if user is an employee
-      const { data: roleData, error: roleError } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", profiles.id)
-        .single();
-
-      if (roleError || roleData?.role !== "employee") {
-        toast({
-          title: "Error",
-          description: "User must be an employee to receive invitations",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Check if invitation already exists
-      const { data: existingInvitation } = await supabase
-        .from("organization_invitations")
-        .select("id, status")
-        .eq("organization_id", organizationId)
-        .eq("employee_id", profiles.id)
-        .maybeSingle();
-
-      if (existingInvitation) {
-        // Update existing invitation to pending with new details
-        const { error: updateError } = await supabase
-          .from("organization_invitations")
-          .update({
-            status: "pending",
-            invitation_message: invitationMessage,
-            contract_duration: contractDuration,
-            created_at: new Date().toISOString(),
-            accepted_at: null,
-          })
-          .eq("id", existingInvitation.id);
-
-        if (updateError) throw updateError;
-      } else {
-        // Create new invitation
-        const { error: invError } = await supabase
-          .from("organization_invitations")
-          .insert({
-            organization_id: organizationId,
-            employee_id: profiles.id,
-            invitation_message: invitationMessage,
-            contract_duration: contractDuration,
-          });
-
-        if (invError) throw invError;
-      }
+      await api.organizations.invite(organizationId, {
+        employeeId: profile.id,
+        invitationMessage,
+        contractDuration,
+      });
 
       toast({
         title: "Success",
@@ -101,10 +53,11 @@ export default function SendInvitationDialog({ organizationId }: SendInvitationD
       setInvitationMessage("");
       setContractDuration("");
       setOpen(false);
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send invitation";
       toast({
         title: "Error",
-        description: error.message,
+        description: message,
         variant: "destructive",
       });
     } finally {

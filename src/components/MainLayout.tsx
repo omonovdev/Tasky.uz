@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useLocation, NavLink } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useTranslation } from "react-i18next";
+import { useToast } from "@/hooks/use-toast";
 import {
   Sidebar,
   SidebarContent,
@@ -39,6 +40,7 @@ interface ProfileData {
   last_name: string;
   position: string | null;
   avatar_url: string | null;
+  date_of_birth: string | null;
 }
 
 interface Organization {
@@ -61,15 +63,19 @@ const MainLayout = ({ children }: MainLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
+  const { toast } = useToast();
   const [profile, setProfile] = useState<ProfileData>({
     first_name: "",
     last_name: "",
     position: null,
     avatar_url: null,
+    date_of_birth: null,
   });
   const [organizations, setOrganizations] = useState<Membership[]>([]);
   const [selectedOrganization, setSelectedOrganization] = useState<Membership | null>(null);
   const { unreadCount, refreshUnread } = useNotificationContext();
+  const [profileIncomplete, setProfileIncomplete] = useState(false);
+  const notifiedRef = useRef(false);
 
   useEffect(() => {
     fetchProfile();
@@ -79,91 +85,96 @@ const MainLayout = ({ children }: MainLayoutProps) => {
 
   const fetchProfile = async () => {
     try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        console.error("❌ Auth error:", userError);
-        navigate("/auth");
-        return;
-      }
+      const me = await api.users.me();
 
-      // ✅ Remove .single() and handle empty results properly
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("first_name, last_name, position, avatar_url")
-        .eq("id", user.id)
-        .maybeSingle(); // ✅ Use maybeSingle() instead of single()
+      const hasRequiredProfile =
+        me &&
+        me.firstName &&
+        me.lastName &&
+        me.dateOfBirth;
 
-      if (error) {
-        console.error("❌ Profile fetch error:", error);
-        return;
-      }
-
-      // ✅ Handle case where profile doesn't exist
-      if (data) {
-        setProfile(data);
-      } else {
-        console.warn("⚠️ No profile found for user:", user.id);
-        // Set default empty profile
+      if (!hasRequiredProfile) {
+        setProfileIncomplete(true);
         setProfile({
-          first_name: user.email?.split("@")[0] || "User",
-          last_name: "",
-          position: null,
-          avatar_url: null,
+          first_name: me?.firstName || me?.email?.split("@")[0] || "User",
+          last_name: me?.lastName || "",
+          position: me?.position || null,
+          avatar_url: me?.avatarUrl || null,
+          date_of_birth: me?.dateOfBirth || null,
         });
+        return;
       }
+
+      setProfileIncomplete(false);
+      setProfile({
+        first_name: me.firstName,
+        last_name: me.lastName,
+        position: me.position,
+        avatar_url: me.avatarUrl,
+        date_of_birth: me.dateOfBirth,
+      });
     } catch (error) {
-      console.error("❌ Error fetching profile:", error);
+      console.error("Auth error:", error);
+      navigate("/auth");
     }
   };
 
+  useEffect(() => {
+    if (profileIncomplete && location.pathname !== "/profile") {
+      if (!notifiedRef.current) {
+        toast({
+          title: t("auth.profileRequiredTitle") || "Profilni to'ldiring",
+          description: t("auth.profileRequiredDesc") || "Profil ma'lumotlari to'ldirilmaguncha asosiy sahifalarga kirish mumkin emas.",
+          variant: "destructive",
+        });
+        notifiedRef.current = true;
+      }
+      navigate("/profile");
+    }
+
+    if (!profileIncomplete) {
+      notifiedRef.current = false;
+    }
+  }, [profileIncomplete, location.pathname, navigate, toast, t]);
+
   const fetchOrganizations = async () => {
     try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        console.error("❌ Auth error:", userError);
-        return;
-      }
+      const memberships = await api.organizations.myMemberships();
 
-      const { data, error } = await supabase
-        .from("organization_members")
-        .select("organization_id, position, organizations(id, name, photo_url)")
-        .eq("user_id", user.id);
+      const data = (memberships || []).map((m: any) => ({
+        organization_id: m.organizationId,
+        position: m.position ?? null,
+        organizations: {
+          id: m.organization?.id || m.organizationId,
+          name: m.organization?.name || "",
+          photo_url: m.organization?.photoUrl || null,
+        },
+      }));
 
-      if (error) {
-        console.error("❌ Organizations fetch error:", error);
-        return;
-      }
+      if (data.length > 0) {
+        setOrganizations(data as any);
 
-      if (data && data.length > 0) {
-        setOrganizations(data as Membership[]);
-        
-        // Get current selected organization ID
         const currentOrgId = localStorage.getItem("selectedOrganizationId");
-        
         if (currentOrgId) {
-          // Find and set the selected organization
-          const selected = data.find(org => org.organization_id === currentOrgId);
+          const selected = data.find((org: any) => org.organization_id === currentOrgId);
           if (selected) {
-            setSelectedOrganization(selected as Membership);
+            setSelectedOrganization(selected as any);
           } else {
-            // If selected org not found, use first one
             localStorage.setItem("selectedOrganizationId", data[0].organization_id);
-            setSelectedOrganization(data[0] as Membership);
+            setSelectedOrganization(data[0] as any);
           }
-        } else if (data.length > 0) {
-          // Set first organization as default if none selected
+        } else {
           localStorage.setItem("selectedOrganizationId", data[0].organization_id);
-          setSelectedOrganization(data[0] as Membership);
+          setSelectedOrganization(data[0] as any);
         }
       } else {
-        console.warn("⚠️ No organizations found for user");
         setOrganizations([]);
         setSelectedOrganization(null);
       }
     } catch (error) {
-      console.error("❌ Error fetching organizations:", error);
+      console.error("Error fetching organizations:", error);
+      setOrganizations([]);
+      setSelectedOrganization(null);
     }
   };
 
@@ -173,8 +184,9 @@ const MainLayout = ({ children }: MainLayoutProps) => {
     if (selected) {
       setSelectedOrganization(selected);
     }
+    window.dispatchEvent(new CustomEvent("organization-switched", { detail: { organizationId } }));
     navigate("/dashboard");
-    window.location.reload();
+    // window.location.reload();
   };
 
   const getInitials = () => {
@@ -247,7 +259,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
 
         <div className="flex flex-1">
           <Sidebar collapsible="icon" className="border-r-2">
-            <SidebarHeader className="p-4 border-b bg-card/50 mt-4">
+            <SidebarHeader className="p-4 border-b mt-4">
               <div 
                 className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 rounded-xl p-2 transition-all duration-200" 
                 onClick={() => navigate("/profile")}
@@ -268,7 +280,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
                     </span>
                   )}
                   {!profile.position && selectedOrganization?.position && (
-                    <span className="text-xs text-muted-foreground truncate">
+                    <span className="text-xs truncate" style={{fontWeight: "Bold"}}>
                       {selectedOrganization.position}
                     </span>
                   )}
@@ -286,7 +298,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
                     {menuItems.slice(0, -1).map((item) => {
                       const Icon = item.icon;
                       const isActive = location.pathname === item.path;
-                      const showBadge = item.title === "Notifications" && unreadCount > 0;
+                      const showBadge = item.path === "/notifications" && unreadCount > 0;
                       
                       return (
                         <SidebarMenuItem key={item.title}>

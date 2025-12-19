@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authJwt } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,19 +12,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Plus } from "lucide-react";
+import { CalendarIcon, Plus, MoreVertical } from "lucide-react";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import ProfileTaskStats from "@/components/ProfileTaskStats";
-
-const POSITIONS = [
-  "CEO", "CTO", "CFO", "CMO", "COO",
-  "Designer", "Engineer", "Developer", 
-  "HR Manager", "Project Manager", "Team Lead",
-  "Sales Manager", "Marketing Manager",
-  "Product Manager", "Quality Assurance",
-  "Other"
-];
+import WinterBackground from "@/components/WinterBackground";
 
 interface Member {
   id: string;
@@ -55,6 +47,7 @@ export default function MemberDetail() {
   const [showAllTasks, setShowAllTasks] = useState(false);
   const [loading, setLoading] = useState(true);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [showPositionDialog, setShowPositionDialog] = useState(false);
 
   const displayedTasks = showAllTasks ? tasks : tasks.slice(0, 3);
 
@@ -80,23 +73,24 @@ export default function MemberDetail() {
       
       try {
         // Determine organization ID from URL or localStorage
-        let finalOrgId = urlOrgId;
+        let finalOrgId = urlOrgId || undefined;
         
         if (!finalOrgId) {
           finalOrgId = localStorage.getItem("selectedOrganizationId");
         }
 
-        if (!finalOrgId) {
-          // If still no org ID, try to fetch from user's memberships
-          const { data: membershipData } = await supabase
-            .from('organization_members')
-            .select('organization_id')
-            .eq('user_id', memberId)
-            .limit(1)
-            .single();
+        if (finalOrgId && finalOrgId.startsWith("11111111-")) {
+          finalOrgId = undefined;
+        }
 
-          if (membershipData) {
-            finalOrgId = membershipData.organization_id;
+        const memberships = await api.organizations.myMemberships();
+        const isMemberOfSelected =
+          !!finalOrgId && memberships.some((m: any) => m.organizationId === finalOrgId);
+
+        if (!finalOrgId || !isMemberOfSelected) {
+          finalOrgId = memberships?.[0]?.organizationId;
+          if (finalOrgId) {
+            localStorage.setItem("selectedOrganizationId", finalOrgId);
           }
         }
 
@@ -115,7 +109,7 @@ export default function MemberDetail() {
         // Fetch all data in parallel
         await Promise.all([
           fetchMember(finalOrgId, memberId),
-          fetchTasks(memberId),
+          fetchTasks(finalOrgId, memberId),
           checkCreator(finalOrgId)
         ]);
       } catch (error) {
@@ -135,21 +129,10 @@ export default function MemberDetail() {
 
   const checkCreator = async (orgId: string) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user?.id) return;
-      
-      const { data: org, error } = await supabase
-        .from('organizations')
-        .select('created_by')
-        .eq('id', orgId)
-        .maybeSingle();
-
-      if (error) {
-        console.error('checkCreator error:', error);
-        return;
-      }
-
-      setIsCreator(org?.created_by === user.id);
+      const currentUserId = authJwt.getUserId();
+      if (!currentUserId) return;
+      const org = await api.organizations.get(orgId);
+      setIsCreator(org?.createdBy === currentUserId);
     } catch (error) {
       console.error('checkCreator error:', error);
     }
@@ -157,29 +140,10 @@ export default function MemberDetail() {
 
   const fetchMember = async (orgId: string, userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('organization_members')
-        .select(`
-          id,
-          user_id,
-          position,
-          profiles!inner(first_name, last_name, avatar_url)
-        `)
-        .eq('organization_id', orgId)
-        .eq('user_id', userId)
-        .maybeSingle();
+      const members = await api.organizations.members(orgId);
+      const row = (members || []).find((m: any) => m.userId === userId);
 
-      if (error) {
-        console.error('fetchMember error:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load member details",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (!data) {
+      if (!row) {
         toast({
           title: "Error",
           description: "Member not found in this organization",
@@ -189,86 +153,53 @@ export default function MemberDetail() {
         return;
       }
 
-      const formattedMember = {
-        id: data.id,
-        user_id: data.user_id,
-        position: data.position || 'Employee',
-        first_name: (data.profiles as any).first_name,
-        last_name: (data.profiles as any).last_name,
-        avatar_url: (data.profiles as any).avatar_url,
+      const formattedMember: Member = {
+        id: row.id,
+        user_id: row.userId,
+        position: row.position || 'Employee',
+        first_name: row.user?.firstName || 'User',
+        last_name: row.user?.lastName || '',
+        avatar_url: row.user?.avatarUrl || '',
       };
 
       setMember(formattedMember);
       setPosition(formattedMember.position);
     } catch (error) {
       console.error('fetchMember error:', error);
-    }
-  };
-
-  const fetchTasks = async (userId: string) => {
-    try {
-      const { data: assignments, error: assignmentError } = await supabase
-        .from('task_assignments')
-        .select('task_id')
-        .eq('user_id', userId);
-
-      if (assignmentError) {
-        console.error('fetchTasks assignment error:', assignmentError);
-        return;
-      }
-
-      const taskIds = assignments?.map(a => a.task_id) || [];
-
-      if (taskIds.length === 0) {
-        setTasks([]);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('*')
-        .in('id', taskIds)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('fetchTasks error:', error);
-        return;
-      }
-
-      if (data) {
-        setTasks(data);
-      }
-    } catch (error) {
-      console.error('fetchTasks error:', error);
-    }
-  };
-
-  const handleUpdatePosition = async () => {
-    if (!member?.id) return;
-
-    const finalPosition = position === 'Other' ? customPosition : position;
-    
-    const { error } = await supabase
-      .from('organization_members')
-      .update({ position: finalPosition })
-      .eq('id', member.id);
-
-    if (error) {
       toast({
         title: "Error",
-        description: "Failed to update position",
+        description: "Failed to load member details",
         variant: "destructive",
       });
-      return;
     }
+  };
 
-    toast({
-      title: "Success",
-      description: "Position updated successfully",
-    });
+  const fetchTasks = async (orgId: string, userId: string) => {
+    try {
+      const allTasks = await api.tasks.list({ organizationId: orgId, all: true });
 
-    if (organizationId && memberId) {
-      fetchMember(organizationId, memberId);
+      const filtered = (allTasks || []).filter((t: any) => {
+        if (t.assignedToId === userId) return true;
+        return (t.assignments || []).some((a: any) => a.userId === userId);
+      });
+
+      filtered.sort(
+        (a: any, b: any) =>
+          new Date(b.createdAt || b.updatedAt || 0).getTime() -
+          new Date(a.createdAt || a.updatedAt || 0).getTime(),
+      );
+
+      const mapped: Task[] = filtered.map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description || "",
+        deadline: t.deadline,
+        status: t.status,
+      }));
+
+      setTasks(mapped);
+    } catch (error) {
+      console.error('fetchTasks error:', error);
     }
   };
 
@@ -288,36 +219,23 @@ export default function MemberDetail() {
         description: "Invalid organization or member ID",
         variant: "destructive",
       });
-      return;
-    }
+        return;
+      }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.id) {
-      toast({
-        title: "Error",
-        description: "User not authenticated",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const { error } = await supabase
-      .from('tasks')
-      .insert({
-        title: taskTitle,
-        description: taskDescription,
+    try {
+      await api.tasks.create({
+        organizationId,
+        title: taskTitle.trim(),
+        description: taskDescription.trim() || undefined,
+        assignedToId: memberId,
         deadline: taskDeadline.toISOString(),
-        assigned_to: memberId,
-        assigned_by: user.id,
-        organization_id: organizationId,
-        status: 'pending'
+        assigneeIds: [memberId],
       });
-
-    if (error) {
+    } catch (error: any) {
       console.error('handleAssignTask error:', error);
       toast({
         title: "Error",
-        description: "Failed to assign task",
+        description: error.message || "Failed to assign task",
         variant: "destructive",
       });
       return;
@@ -332,7 +250,48 @@ export default function MemberDetail() {
     setTaskTitle("");
     setTaskDescription("");
     setTaskDeadline(undefined);
-    fetchTasks(memberId);
+    if (organizationId) {
+      fetchTasks(organizationId, memberId);
+    }
+  };
+
+  const handleUpdatePosition = async () => {
+    if (!member?.id) return;
+
+    const finalPosition = position === "Other" ? customPosition : position;
+
+    if (!finalPosition.trim()) {
+      toast({
+        title: "Error",
+        description: "Position is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await api.organizations.updateMemberPosition(member.id, {
+        position: finalPosition.trim(),
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update position",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Success",
+      description: "Position updated successfully",
+    });
+
+    setShowPositionDialog(false);
+
+    if (organizationId && memberId) {
+      fetchMember(organizationId, memberId);
+    }
   };
 
   if (loading) {
@@ -365,59 +324,39 @@ export default function MemberDetail() {
 
       <div className="mt-6 space-y-6">
         {/* Member Info */}
-        <Card className="p-6">
-          <div className="flex items-center gap-4 mb-6">
+        <Card className="p-6 relative">
+          {isCreator && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute top-4 right-4"
+              onClick={() => setShowPositionDialog(true)}
+            >
+              <MoreVertical className="w-4 h-4" />
+            </Button>
+          )}
+          <div className="flex flex-col items-center gap-4 mb-2">
             {member.avatar_url ? (
-              <img 
-                src={member.avatar_url} 
+              <img
+                src={member.avatar_url}
                 alt={member.first_name}
-                className="w-20 h-20 rounded-full object-cover"
+                className="w-28 h-28 rounded-full object-cover"
               />
             ) : (
-              <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
-                <span className="text-2xl font-semibold text-primary">
-                  {member.first_name[0]}{member.last_name[0]}
+              <div className="w-28 h-28 rounded-full bg-primary/10 flex items-center justify-center">
+                <span className="text-3xl font-semibold text-primary">
+                  {member.first_name[0]}
+                  {member.last_name[0]}
                 </span>
               </div>
             )}
-            <div>
-              <h1 className="text-2xl font-bold">{member.first_name} {member.last_name}</h1>
-              <p className="text-muted-foreground">{member.position}</p>
+            <div className="text-center">
+              <h1 className="text-2xl font-bold">
+                {member.first_name} {member.last_name}
+              </h1>
+              <p className="text-muted-foreground mt-1">{member.position}</p>
             </div>
           </div>
-
-          {isCreator && (
-            <div className="space-y-4">
-              <div>
-                <Label>Position</Label>
-                <Select value={position} onValueChange={setPosition}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60 overflow-y-auto">
-                    {POSITIONS.map(pos => (
-                      <SelectItem key={pos} value={pos}>{pos}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {position === 'Other' && (
-                <div>
-                  <Label>Custom Position</Label>
-                  <Input
-                    value={customPosition}
-                    onChange={(e) => setCustomPosition(e.target.value)}
-                    placeholder="Enter position"
-                  />
-                </div>
-              )}
-
-              <Button onClick={handleUpdatePosition} className="w-full">
-                Update Position
-              </Button>
-            </div>
-          )}
         </Card>
 
         {/* Task Actions */}
@@ -472,6 +411,51 @@ export default function MemberDetail() {
                 </div>
                 <Button onClick={handleAssignTask} className="w-full">
                   Assign Task
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Position edit dialog */}
+        {isCreator && (
+          <Dialog open={showPositionDialog} onOpenChange={setShowPositionDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Update Position</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label>Position</Label>
+                  <Select value={position} onValueChange={setPosition}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select position" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      <SelectItem value="CEO">CEO</SelectItem>
+                      <SelectItem value="CTO">CTO</SelectItem>
+                      <SelectItem value="Developer">Developer</SelectItem>
+                      <SelectItem value="Designer">Designer</SelectItem>
+                      <SelectItem value="Project Manager">Project Manager</SelectItem>
+                      <SelectItem value="Team Lead">Team Lead</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {position === "Other" && (
+                  <div>
+                    <Label>Custom position</Label>
+                    <Input
+                      value={customPosition}
+                      onChange={(e) => setCustomPosition(e.target.value)}
+                      placeholder="Enter position"
+                    />
+                  </div>
+                )}
+
+                <Button onClick={handleUpdatePosition} className="w-full">
+                  Save
                 </Button>
               </div>
             </DialogContent>

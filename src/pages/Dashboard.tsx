@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Calendar, Bell, CheckCircle2, Clock, AlertCircle, Users, Building2, TrendingUp, Target, Zap, Award, ArrowRight, Plus, Sparkles } from "lucide-react";
+import { Calendar, Bell, Users, Building2, TrendingUp, Target, Zap, ArrowRight, Sparkles, Plus, CheckCircle2 } from "lucide-react";
 import TasksList from "@/components/TasksList";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CreateOrganizationForm } from "@/components/CreateOrganizationForm";
-import { useQueryClient } from "@tanstack/react-query";
-import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import CreateTaskDialog from "@/components/CreateTaskDialog";
+import WinterBackground from "@/components/WinterBackground";
 
 interface Organization {
   id: string;
@@ -26,33 +26,22 @@ interface Organization {
 const Dashboard = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [stats, setStats] = useState({
-    total: 0,
-    completed: 0,
-    inProgress: 0,
-    urgent: 0,
-    totalCreated: 0,
-  });
   const [loading, setLoading] = useState(true);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [recentTasks, setRecentTasks] = useState<any[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [taskFilter, setTaskFilter] = useState<"all" | "pending" | "completed">("all");
-  const [userRole, setUserRole] = useState<string | null>(null);
   const [greeting, setGreeting] = useState("");
   const [userName, setUserName] = useState("");
   const [showWelcome, setShowWelcome] = useState(false);
-
-  // Roles that can see the statistics section
-  const ALLOWED_ROLES = ['CEO', 'CMO', 'Founder', 'CTO', 'Manager'];
+  const [showCreateTaskDialog, setShowCreateTaskDialog] = useState(false);
 
   useEffect(() => {
     // Set greeting based on time of day
     const hour = new Date().getHours();
-    if (hour < 12) setGreeting("Good Morning");
-    else if (hour < 18) setGreeting("Good Afternoon");
-    else setGreeting("Good Evening");
+    if (hour < 12) setGreeting(t("dashboardExtended.greetings.morning"));
+    else if (hour < 18) setGreeting(t("dashboardExtended.greetings.afternoon"));
+    else setGreeting(t("dashboardExtended.greetings.evening"));
 
     // Check if this is the first visit (check localStorage)
     const hasSeenWelcome = localStorage.getItem("hasSeenDashboardWelcome");
@@ -66,176 +55,62 @@ const Dashboard = () => {
       const timer = setTimeout(() => setShowWelcome(false), 3000);
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const initializeDashboard = async () => {
       await fetchOrganization();
-      await fetchUserRole();
-      await fetchTaskStats();
       await fetchRecentTasks();
       await fetchUserName();
+      setLoading(false);
     };
     initializeDashboard();
 
-    // Subscribe to realtime changes for organization members
-    const membersChannel = supabase
-      .channel('dashboard-members-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'organization_members'
-        },
-        () => {
-          fetchOrganization();
-          fetchTaskStats();
-        }
-      )
-      .subscribe();
-
-    // Subscribe to realtime changes for tasks
-    const selectedOrgId = localStorage.getItem("selectedOrganizationId");
-    const tasksChannel = supabase
-      .channel('dashboard-tasks-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: selectedOrgId ? `organization_id=eq.${selectedOrgId}` : undefined
-        },
-        (payload) => {
-          console.log('📊 Dashboard: Task changed (realtime):', payload);
-          fetchTaskStats();
-          fetchRecentTasks();
-          queryClient.invalidateQueries({ queryKey: ['tasks'] });
-        }
-      )
-      .subscribe();
-
-    // Subscribe to realtime changes for task assignments
-    const assignmentsChannel = supabase
-      .channel('dashboard-assignments-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'task_assignments'
-        },
-        (payload) => {
-          console.log('📊 Dashboard: Task assignment changed (realtime):', payload);
-          fetchTaskStats();
-          fetchRecentTasks();
-          queryClient.invalidateQueries({ queryKey: ['tasks'] });
-        }
-      )
-      .subscribe();
+    const handleOrgSwitch = (event: any) => {
+      const orgId = event?.detail?.organizationId;
+      if (orgId) {
+        setLoading(true);
+        fetchOrganization().then(fetchRecentTasks).finally(() => setLoading(false));
+      }
+    };
+    window.addEventListener("organization-switched", handleOrgSwitch as EventListener);
 
     return () => {
-      supabase.removeChannel(membersChannel);
-      supabase.removeChannel(tasksChannel);
-      supabase.removeChannel(assignmentsChannel);
+      window.removeEventListener("organization-switched", handleOrgSwitch as EventListener);
     };
-  }, [organization?.id]);
+  }, []);
 
   const fetchUserName = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("first_name, last_name")
-        .eq("id", user.id)
-        .single();
-
-      if (profile) {
-        setUserName(`${profile.first_name} ${profile.last_name}`);
-      }
+      const me = await api.users.me();
+      const name = `${me.firstName || ""} ${me.lastName || ""}`.trim();
+      setUserName(name || me.email || "");
     } catch (error) {
       console.error("Error fetching user name:", error);
     }
   };
 
-  const fetchUserRole = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const selectedOrgId = localStorage.getItem("selectedOrganizationId");
-      if (!selectedOrgId) return;
-
-      const { data: membership } = await supabase
-        .from("organization_members")
-        .select("position")
-        .eq("user_id", user.id)
-        .eq("organization_id", selectedOrgId)
-        .single();
-
-      setUserRole(membership?.position || null);
-    } catch (error) {
-      console.error("Error fetching user role:", error);
-    }
-  };
-
   const fetchRecentTasks = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const selectedOrgId = localStorage.getItem("selectedOrganizationId");
-      if (!selectedOrgId) return;
-
-      const { data: assignments } = await supabase
-        .from("task_assignments")
-        .select("task_id")
-        .eq("user_id", user.id);
-
-      const assignedTaskIds = assignments?.map(a => a.task_id) || [];
-      
-      let query = supabase
-        .from("tasks")
-        .select("*")
-        .eq("organization_id", selectedOrgId)
-        .order("created_at", { ascending: false })
-        .limit(5);
-
-      if (assignedTaskIds.length > 0) {
-        query = query.or(`assigned_by.eq.${user.id},id.in.(${assignedTaskIds.join(',')})`);
-      } else {
-        query = query.eq("assigned_by", user.id);
+      if (!selectedOrgId || selectedOrgId.startsWith("11111111-")) {
+        setRecentTasks([]);
+        return;
       }
 
-      const { data: allTasks } = await query;
-
-      const tasksWithNames = await Promise.all(
-        (allTasks || []).map(async (task) => {
-          const { data: assignments } = await supabase
-            .from('task_assignments')
-            .select('user_id')
-            .eq('task_id', task.id);
-          
-          const assigneeIds = assignments?.map(a => a.user_id) || [];
-          
-          if (assigneeIds.length > 0) {
-            const { data: profiles } = await supabase
-              .from('profiles')
-              .select('first_name, last_name')
-              .in('id', assigneeIds);
-            
-            const names = profiles?.map(p => `${p.first_name} ${p.last_name}`).join(', ');
-            return { ...task, assignee_names: names };
-          }
-          
-          return task;
-        })
-      );
-
-      setRecentTasks(tasksWithNames);
+      const allTasks = await api.tasks.list({ organizationId: selectedOrgId, all: true });
+      const recent = (allTasks || [])
+        .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 5)
+        .map((task: any) => {
+          const assigneeUsers = (task.assignments || []).map((a: any) => a.user).filter(Boolean);
+          const names = assigneeUsers
+            .map((u: any) => `${u.firstName || ""} ${u.lastName || ""}`.trim())
+            .filter(Boolean)
+            .join(", ");
+          return { ...task, assignee_names: names || undefined };
+        });
+      setRecentTasks(recent);
     } catch (error) {
       console.error("Error fetching recent tasks:", error);
     }
@@ -243,107 +118,55 @@ const Dashboard = () => {
 
   const fetchOrganization = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        navigate("/auth");
-        return;
-      }
-
       let selectedOrgId = localStorage.getItem("selectedOrganizationId");
       
-      const { data: memberships } = await supabase
-        .from("organization_members")
-        .select("organization_id, organizations(*)")
-        .eq("user_id", user.id);
+      const memberships = await api.organizations.myMemberships();
 
       if (!memberships || memberships.length === 0) {
         setOrganization(null);
         return;
       }
 
-      const isMemberOfSelected = memberships.some(m => m.organization_id === selectedOrgId);
+      const isMemberOfSelected = memberships.some((m: any) => m.organizationId === selectedOrgId);
       
       if (!selectedOrgId || !isMemberOfSelected) {
-        selectedOrgId = memberships[0].organization_id;
+        selectedOrgId = memberships[0].organizationId;
         localStorage.setItem("selectedOrganizationId", selectedOrgId);
       }
 
-      const selectedMembership = memberships.find(m => m.organization_id === selectedOrgId);
-      if (selectedMembership && selectedMembership.organizations) {
-        setOrganization(selectedMembership.organizations as Organization);
+      const selectedMembership = memberships.find((m: any) => m.organizationId === selectedOrgId) || memberships[0];
+      const org = selectedMembership.organization;
+      if (org) {
+        setOrganization({
+          id: org.id || selectedOrgId || "",
+          name: org.name,
+          subheadline: org.subheadline || "",
+          description: org.description || "",
+          motto: org.motto || "",
+          photo_url: org.photoUrl || "",
+        });
       }
     } catch (error) {
       console.error("Error fetching organization:", error);
-    }
-  };
-
-  const fetchTaskStats = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        navigate("/auth");
-        return;
-      }
-
-      const selectedOrgId = localStorage.getItem("selectedOrganizationId");
-      if (!selectedOrgId) return;
-
-      const { data: createdTasks, error: createdErr } = await supabase
-        .from("tasks")
-        .select("*")
-        .eq("assigned_by", user.id)
-        .eq("organization_id", selectedOrgId);
-
-      if (createdErr) throw createdErr;
-
-      const allCreatedTasks = createdTasks || [];
-
-      const now = new Date();
-      const completed = allCreatedTasks.filter(t => t.status === "completed").length;
-      const inProgress = allCreatedTasks.filter(t => t.status === "in_progress" || t.status === "pending").length;
-      const urgent = allCreatedTasks.filter(t => {
-        if (!t.deadline) return false;
-        const deadline = new Date(t.deadline);
-        const hoursLeft = (deadline.getTime() - now.getTime()) / (1000 * 60 * 60);
-        return hoursLeft < 72 && hoursLeft > 0 && t.status !== "completed";
-      }).length;
-
-      setStats({
-        total: allCreatedTasks.length,
-        completed,
-        inProgress,
-        urgent,
-        totalCreated: allCreatedTasks.length,
-      });
-    } catch (error) {
-      console.error("Error fetching created task stats:", error);
-    } finally {
-      setLoading(false);
+      navigate("/auth");
     }
   };
 
   const handleOrganizationCreated = () => {
     setShowCreateDialog(false);
     fetchOrganization();
-    fetchTaskStats();
   };
-
-  const handleStatCardClick = (status: string) => {
-    if (!organization) return;
-    navigate(`/task-status/${organization.id}/${status}`);
-  };
-
-  const completionRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/5">
-        <div className="text-center space-y-4">
+      <div className="flex items-center justify-center min-h-screen relative">
+        <WinterBackground />
+        <div className="text-center space-y-4 relative z-10">
           <div className="relative">
             <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-primary mx-auto"></div>
             <Sparkles className="h-6 w-6 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
           </div>
-          <p className="text-muted-foreground animate-pulse">Loading your workspace...</p>
+          <p className="text-muted-foreground animate-pulse">{t("dashboardExtended.loadingWorkspace")}</p>
         </div>
       </div>
     );
@@ -351,18 +174,19 @@ const Dashboard = () => {
 
   if (!organization) {
     return (
-      <div className="container mx-auto p-6 pb-24 max-h-screen overflow-y-auto">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <Card className="w-full max-w-md shadow-2xl border-2 animate-in zoom-in duration-500">
+      <div className="container mx-auto p-6 pb-24 max-h-screen overflow-y-auto relative">
+        <WinterBackground />
+        <div className="flex items-center justify-center min-h-[60vh] relative z-10">
+          <Card className="w-full max-w-md shadow-2xl border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 animate-in zoom-in duration-500">
             <CardHeader className="text-center">
               <div className="mx-auto mb-4 h-20 w-20 rounded-full bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center animate-pulse shadow-lg">
                 <Building2 className="h-10 w-10 text-primary-foreground" />
               </div>
               <CardTitle className="text-3xl bg-gradient-to-r from-primary to-primary/50 bg-clip-text text-transparent">
-                Welcome to Deadliner
+                {t("dashboardExtended.noOrgTitle")}
               </CardTitle>
               <CardDescription className="text-base mt-2">
-                Get started by creating or joining an organization
+                {t("dashboardExtended.noOrgSubtitle")}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex justify-center">
@@ -372,7 +196,7 @@ const Dashboard = () => {
                 className="w-full group shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
               >
                 <Building2 className="mr-2 h-5 w-5 group-hover:rotate-12 transition-transform" />
-                Create Organization
+                {t("dashboard.createOrganization")}
                 <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
               </Button>
             </CardContent>
@@ -382,7 +206,7 @@ const Dashboard = () => {
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Create Organization</DialogTitle>
+              <DialogTitle>{t("dashboard.createOrganization")}</DialogTitle>
             </DialogHeader>
             <CreateOrganizationForm 
               onSuccess={handleOrganizationCreated}
@@ -394,10 +218,10 @@ const Dashboard = () => {
     );
   }
 
-  const canViewStatistics = userRole && ALLOWED_ROLES.includes(userRole);
-
   return (
-    <div className="container mx-auto p-6 pb-24 space-y-6 max-h-screen overflow-y-auto bg-gradient-to-br from-background via-primary/[0.02] to-accent/[0.03]">
+    <div className="min-h-screen max-h-screen overflow-y-auto pb-24 relative">
+      <WinterBackground />
+      <div className="container mx-auto p-6 space-y-6 relative z-10">
       {/* Welcome Animation Overlay - Only shown on first visit */}
       {showWelcome && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm animate-out fade-out duration-1000 delay-2000">
@@ -412,7 +236,7 @@ const Dashboard = () => {
               {greeting}, {userName}!
             </h1>
             <p className="text-lg text-muted-foreground animate-pulse">
-              Let's make today productive
+              {t("dashboardExtended.welcomeSubtitle")}
             </p>
           </div>
         </div>
@@ -420,7 +244,7 @@ const Dashboard = () => {
 
       {/* Hero Section with Organization Info */}
       {organization && (
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-2 border-primary/10 shadow-xl animate-in fade-in slide-in-from-top-4 duration-700">
+        <div className="relative overflow-hidden rounded-2xl bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-0 ring-1 ring-white/30 dark:ring-primary/20 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-700">
           <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
           <div className="absolute bottom-0 left-0 w-48 h-48 bg-accent/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
           
@@ -455,7 +279,7 @@ const Dashboard = () => {
                 </div>
                 
                 {organization.motto && (
-                  <div className="flex items-center gap-2 p-3 bg-background/50 backdrop-blur rounded-lg border border-primary/10">
+                  <div className="flex items-center gap-2 p-3 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-lg ring-1 ring-white/30 dark:ring-primary/10">
                     <Target className="h-5 w-5 text-primary" />
                     <p className="text-muted-foreground italic">"{organization.motto}"</p>
                   </div>
@@ -471,7 +295,7 @@ const Dashboard = () => {
                   onClick={() => navigate(`/organization/${organization.id}`)}
                 >
                   <Users className="w-4 h-4 mr-2 group-hover:animate-pulse" />
-                  View Full Organization
+                  {t("dashboard.viewFullOrganization")}
                   <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
                 </Button>
               </div>
@@ -480,143 +304,46 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Greeting and Quick Stats Bar */}
+      {/* Greeting and Quick Note */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-in fade-in slide-in-from-top-5 duration-700 delay-100">
         <div>
           <h2 className="text-3xl font-bold flex items-center gap-3">
             {greeting}, {userName}! 
             <span className="inline-block animate-bounce">👋</span>
           </h2>
-          <p className="text-muted-foreground text-lg mt-1">Here's what's happening with your tasks today</p>
+          <p className="text-muted-foreground text-lg mt-1">{t("dashboardExtended.heroSubtitle")}</p>
         </div>
         
-        {canViewStatistics && (
-          <div className="flex items-center gap-4 p-4 bg-gradient-to-r from-primary/10 to-accent/10 rounded-xl border border-primary/20 shadow-lg">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-primary">{completionRate}%</div>
-              <div className="text-xs text-muted-foreground">Completion</div>
-            </div>
-            <div className="h-12 w-px bg-border"></div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-success">{stats.completed}</div>
-              <div className="text-xs text-muted-foreground">Completed</div>
-            </div>
-            <Award className="h-8 w-8 text-primary animate-pulse" />
-          </div>
+        {organization && (
+          <Button
+            onClick={() => navigate(`/organization/${organization.id}/stats`)}
+            className="group bg-gradient-to-r from-primary to-primary/80 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
+          >
+            <TrendingUp className="w-4 h-4 mr-2 group-hover:animate-pulse" />
+            {t("dashboardExtended.viewOrgStats")}
+            <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+          </Button>
         )}
       </div>
 
-      {/* Task Statistics - Enhanced Visual Cards */}
-      {canViewStatistics && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[
-            {
-              title: "Total Tasks",
-              value: stats.total,
-              subtitle: "All tasks created",
-              icon: CheckCircle2,
-              color: "text-blue-500",
-              bgColor: "from-blue-500/10 to-blue-500/5",
-              borderColor: "border-blue-500/20",
-              hoverColor: "hover:border-blue-500/40",
-              status: 'all',
-              delay: 0
-            },
-            {
-              title: "Completed",
-              value: stats.completed,
-              subtitle: `${completionRate}% success rate`,
-              icon: CheckCircle2,
-              color: "text-success",
-              bgColor: "from-success/10 to-success/5",
-              borderColor: "border-success/20",
-              hoverColor: "hover:border-success/40",
-              status: 'completed',
-              delay: 100
-            },
-            {
-              title: "In Progress",
-              value: stats.inProgress,
-              subtitle: "Active tasks",
-              icon: Clock,
-              color: "text-primary",
-              bgColor: "from-primary/10 to-primary/5",
-              borderColor: "border-primary/20",
-              hoverColor: "hover:border-primary/40",
-              status: 'in_progress',
-              delay: 200
-            },
-            {
-              title: "Urgent",
-              value: stats.urgent,
-              subtitle: "Due within 72h",
-              icon: AlertCircle,
-              color: "text-destructive",
-              bgColor: "from-destructive/10 to-destructive/5",
-              borderColor: "border-destructive/20",
-              hoverColor: "hover:border-destructive/40",
-              status: 'urgent',
-              delay: 300
-            }
-          ].map((stat, index) => (
-            <Card
-              key={stat.title}
-              className={cn(
-                "group relative overflow-hidden cursor-pointer transition-all duration-500 hover:scale-105 hover:shadow-2xl border-2 animate-in fade-in slide-in-from-top-6",
-                `bg-gradient-to-br ${stat.bgColor}`,
-                stat.borderColor,
-                stat.hoverColor
-              )}
-              style={{ animationDelay: `${stat.delay}ms` }}
-              onClick={() => handleStatCardClick(stat.status)}
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 -translate-y-1/2 translate-x-1/2 opacity-20">
-                <stat.icon className={cn("h-32 w-32", stat.color)} />
-              </div>
-              
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-                <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
-                <div className={cn("p-2 rounded-lg bg-background/50 backdrop-blur shadow-lg group-hover:scale-110 transition-transform")}>
-                  <stat.icon className={cn("h-5 w-5", stat.color)} />
-                </div>
-              </CardHeader>
-              
-              <CardContent className="relative z-10">
-                <div className={cn("text-4xl font-bold mb-1 group-hover:scale-110 transition-transform", stat.color)}>
-                  {stat.value}
-                </div>
-                <p className="text-xs text-muted-foreground">{stat.subtitle}</p>
-                
-                {stat.title === "Completed" && stats.total > 0 && (
-                  <Progress value={completionRate} className="h-2 mt-3" />
-                )}
-              </CardContent>
-              
-              <div className="absolute bottom-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                <ArrowRight className="h-5 w-5 text-muted-foreground" />
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Quick Actions and Recent Activity Grid */}
+      {/* {t("dashboard.quickActions")} and Recent Activity Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {/* Quick Actions */}
-        <Card className="group relative overflow-hidden hover:shadow-xl transition-all duration-300 border-2 hover:border-primary/30 animate-in fade-in slide-in-from-left-4 duration-700">
+        {/* {t("dashboard.quickActions")} */}
+        <Card className="group relative overflow-hidden hover:shadow-2xl transition-all duration-300 border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 hover:ring-primary/30 animate-in fade-in slide-in-from-left-4 duration-700">
           <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl"></div>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Zap className="h-5 w-5 text-primary" />
-              Quick Actions
+              {t("dashboard.quickActions")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {[
-              { icon: Plus, label: "Create New Task", onClick: () => {}, color: "text-primary" },
-              { icon: Calendar, label: "View Calendar", onClick: () => navigate("/calendar"), color: "text-blue-500" },
-              { icon: Bell, label: "Check Notifications", onClick: () => navigate("/notifications"), color: "text-amber-500" },
-              { icon: TrendingUp, label: "View Analytics", onClick: () => {}, color: "text-success" }
+              { icon: Plus, label: t("dashboardExtended.quickActions.createTask"), onClick: () => setShowCreateTaskDialog(true), color: "text-primary" },
+              { icon: CheckCircle2, label: t("dashboardExtended.quickActions.myTasks"), onClick: () => navigate("/tasks"), color: "text-emerald-500" },
+              { icon: Calendar, label: t("dashboardExtended.quickActions.viewCalendar"), onClick: () => navigate("/calendar"), color: "text-blue-500" },
+              { icon: Bell, label: t("dashboardExtended.quickActions.checkNotifications"), onClick: () => navigate("/notifications"), color: "text-amber-500" },
+              { icon: TrendingUp, label: t("dashboardExtended.quickActions.viewAnalytics"), onClick: () => organization && navigate(`/organization/${organization.id}/stats`), color: "text-success" }
             ].map((action, index) => (
               <Button
                 key={action.label}
@@ -636,16 +363,16 @@ const Dashboard = () => {
         </Card>
 
         {/* Recent Activity */}
-        <Card className="md:col-span-2 group relative overflow-hidden hover:shadow-xl transition-all duration-300 border-2 hover:border-accent/30 animate-in fade-in slide-in-from-right-4 duration-700">
+        <Card className="md:col-span-2 group relative overflow-hidden hover:shadow-2xl transition-all duration-300 border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 hover:ring-accent/30 animate-in fade-in slide-in-from-right-4 duration-700">
           <div className="absolute bottom-0 left-0 w-32 h-32 bg-accent/5 rounded-full blur-2xl"></div>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-accent" />
-                Recent Activity
+                {t("dashboard.recentActivity")}
               </span>
-              <Badge variant="secondary" className="animate-pulse">
-                {recentTasks.length} tasks
+              <Badge variant="secondary" className="animate">
+                {t("dashboardExtended.tasksCount", { count: recentTasks.length })}
               </Badge>
             </CardTitle>
           </CardHeader>
@@ -653,8 +380,8 @@ const Dashboard = () => {
             {recentTasks.length === 0 ? (
               <div className="text-center py-12">
                 <Target className="h-16 w-16 text-muted-foreground/20 mx-auto mb-4" />
-                <p className="text-muted-foreground">No recent activity yet</p>
-                <p className="text-sm text-muted-foreground mt-1">Create your first task to get started!</p>
+                <p className="text-muted-foreground">{t("dashboardExtended.noActivityTitle")}</p>
+                <p className="text-sm text-muted-foreground mt-1">{t("dashboardExtended.noActivityCta")}</p>
               </div>
             ) : (
               <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
@@ -662,8 +389,9 @@ const Dashboard = () => {
                   <div
                     key={task.id}
                     className={cn(
-                      "group/task relative flex items-start justify-between p-4 border-2 rounded-xl cursor-pointer",
-                      "hover:bg-accent/50 hover:scale-[1.02] hover:shadow-lg transition-all duration-300",
+                      "group/task relative flex items-start justify-between p-4 border-0 rounded-xl cursor-pointer",
+                      "bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm ring-1 ring-white/30",
+                      "hover:bg-white/80 dark:hover:bg-slate-800/80 hover:scale-[1.02] hover:shadow-lg hover:ring-primary/30 transition-all duration-300",
                       "animate-in fade-in slide-in-from-right-2"
                     )}
                     style={{ animationDelay: `${index * 100}ms` }}
@@ -682,9 +410,9 @@ const Dashboard = () => {
                           }
                           className="flex-shrink-0 animate-in zoom-in"
                         >
-                          {task.status === 'pending' ? 'Pending' :
-                           task.status === 'in_progress' ? 'In Progress' :
-                           'Completed'}
+                          {task.status === 'pending' ? t("tasks.pending") :
+                           task.status === 'in_progress' ? t("tasks.inProgress") :
+                           t("tasks.completed")}
                         </Badge>
                       </div>
                       
@@ -717,18 +445,29 @@ const Dashboard = () => {
         </Card>
       </div>
 
-      {/* Tasks List Section */}
+      {/* Organization Tasks List Section - Shows ALL organization tasks */}
       {organization && (
         <div className="animate-in fade-in slide-in-from-bottom-6 duration-700 delay-300">
           <TasksList
             organizationId={organization.id}
-            isCreator={true}
-            showOnlyMyTasks={true}
+            isCreator={true /* Dashboard faqat tashkilot rahbarlari uchun, shu yerda barcha tasklar ustidan nazorat */}
+            showOnlyMyTasks={false}
             filterStatus={taskFilter}
             onFilterChange={setTaskFilter}
           />
         </div>
       )}
+
+      {/* CreateTaskDialog - tashqaridan boshqariladigan */}
+      {organization && (
+        <CreateTaskDialog
+          organizationId={organization.id}
+          onTaskCreated={fetchRecentTasks}
+          open={showCreateTaskDialog}
+          onOpenChange={setShowCreateTaskDialog}
+        />
+      )}
+      </div>
     </div>
   );
 };

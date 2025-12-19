@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { FileText, Download, Image, Video, File } from "lucide-react";
@@ -54,63 +54,42 @@ export default function TaskReportsDialog({
   }, [open, taskId]);
 
   const fetchReports = async () => {
-    const { data: reportsData, error: reportsError } = await supabase
-      .from("task_reports")
-      .select(`
-        id,
-        report_text,
-        created_at,
-        user_id
-      `)
-      .eq("task_id", taskId)
-      .order("created_at", { ascending: false });
+    try {
+      const task = await api.tasks.get(taskId);
+      const reportsData = (task?.reports || []).slice().sort((a: any, b: any) => {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
 
-    if (reportsError) {
+      const reportsWithProfiles: TaskReport[] = reportsData.map((r: any) => ({
+        id: r.id,
+        report_text: r.reportText,
+        created_at: r.createdAt,
+        user_id: r.userId,
+        profiles: {
+          first_name: r.user?.firstName || "Unknown",
+          last_name: r.user?.lastName || "User",
+        },
+      }));
+
+      const attachmentsMap: { [key: string]: TaskAttachment[] } = {};
+      reportsData.forEach((r: any) => {
+        attachmentsMap[r.id] = (r.attachments || []).map((a: any) => ({
+          id: a.id,
+          file_name: a.fileName,
+          file_type: a.fileType,
+          file_url: a.fileUrl,
+          created_at: a.createdAt,
+        }));
+      });
+
+      setReports(reportsWithProfiles);
+      setAttachments(attachmentsMap);
+    } catch {
       toast({
         title: "Error",
         description: "Failed to load reports",
         variant: "destructive",
       });
-      return;
-    }
-
-    // Fetch user profiles separately
-    const reportsWithProfiles = await Promise.all(
-      (reportsData || []).map(async (report) => {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("first_name, last_name")
-          .eq("id", report.user_id)
-          .single();
-
-        return {
-          ...report,
-          profiles: profile || { first_name: "Unknown", last_name: "User" },
-        };
-      })
-    );
-
-    setReports(reportsWithProfiles);
-
-    // Fetch attachments for each report
-    if (reportsData) {
-      const attachmentsMap: { [key: string]: TaskAttachment[] } = {};
-      
-      await Promise.all(
-        reportsData.map(async (report) => {
-          const { data: attachmentsData } = await supabase
-            .from("task_attachments")
-            .select("*")
-            .eq("task_report_id", report.id)
-            .order("created_at", { ascending: false });
-
-          if (attachmentsData) {
-            attachmentsMap[report.id] = attachmentsData;
-          }
-        })
-      );
-
-      setAttachments(attachmentsMap);
     }
   };
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -46,60 +46,37 @@ export default function SubgroupManager({ organizationId, isCreator }: SubgroupM
   }, [organizationId, open]);
 
   const fetchSubgroups = async () => {
-    const { data, error } = await supabase
-      .from('subgroups')
-      .select(`
-        id,
-        name,
-        description
-      `)
-      .eq('organization_id', organizationId);
-
-    if (error) {
+    try {
+      const data = await api.subgroups.list(organizationId);
+      const mapped: Subgroup[] = (data || []).map((sg: any) => ({
+        id: sg.id,
+        name: sg.name,
+        description: sg.description,
+        member_count: sg.members?.length || 0,
+      }));
+      setSubgroups(mapped);
+    } catch (error) {
       console.error(error);
-      return;
     }
-
-    // Fetch member counts
-    const subgroupsWithCounts = await Promise.all(
-      (data || []).map(async (sg) => {
-        const { count } = await supabase
-          .from('subgroup_members')
-          .select('*', { count: 'exact', head: true })
-          .eq('subgroup_id', sg.id);
-        
-        return { ...sg, member_count: count || 0 };
-      })
-    );
-
-    setSubgroups(subgroupsWithCounts);
   };
 
   const fetchMembers = async () => {
-    const { data, error } = await supabase
-      .from('organization_members')
-      .select(`
-        user_id,
-        profiles!organization_members_user_id_fkey(first_name, last_name)
-      `)
-      .eq('organization_id', organizationId);
-
-    if (error) {
+    try {
+      const data = await api.organizations.members(organizationId);
+      const formattedMembers = (data || []).map((m: any) => ({
+        user_id: m.userId,
+        first_name: m.user?.firstName || "Unknown",
+        last_name: m.user?.lastName || "User",
+      }));
+      setMembers(formattedMembers);
+    } catch (error: any) {
+      console.error("Fetch members error:", error);
       toast({
         title: "Error",
-        description: "Failed to load members",
+        description: error?.message || "Failed to load members",
         variant: "destructive",
       });
-      return;
     }
-
-    const formattedMembers = data.map((m: any) => ({
-      user_id: m.user_id,
-      first_name: m.profiles.first_name,
-      last_name: m.profiles.last_name,
-    }));
-
-    setMembers(formattedMembers);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -107,33 +84,14 @@ export default function SubgroupManager({ organizationId, isCreator }: SubgroupM
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const subgroup = await api.subgroups.create({
+        organizationId,
+        name,
+        description,
+      });
 
-      const { data: subgroup, error: subgroupError } = await supabase
-        .from('subgroups')
-        .insert({
-          organization_id: organizationId,
-          name,
-          description,
-          created_by: user?.id,
-        })
-        .select()
-        .single();
-
-      if (subgroupError) throw subgroupError;
-
-      // Add members
       if (selectedMembers.length > 0) {
-        const members = selectedMembers.map(user_id => ({
-          subgroup_id: subgroup.id,
-          user_id,
-        }));
-
-        const { error: membersError } = await supabase
-          .from('subgroup_members')
-          .insert(members);
-
-        if (membersError) throw membersError;
+        await api.subgroups.setMembers(subgroup.id, { userIds: selectedMembers });
       }
 
       toast({
@@ -159,12 +117,7 @@ export default function SubgroupManager({ organizationId, isCreator }: SubgroupM
 
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('subgroups')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      await api.subgroups.delete(id);
 
       toast({
         title: "Success",
@@ -254,7 +207,15 @@ export default function SubgroupManager({ organizationId, isCreator }: SubgroupM
 
       <div className="space-y-2">
         {subgroups.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">No subgroups yet</p>
+          <Card className="p-4 text-center space-y-3">
+            <p className="text-sm text-muted-foreground">No subgroups yet</p>
+            {isCreator && (
+              <Button size="sm" onClick={() => setOpen(true)} className="inline-flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Create subgroup
+              </Button>
+            )}
+          </Card>
         ) : (
           subgroups.map((subgroup) => (
             <Card key={subgroup.id} className="p-3">

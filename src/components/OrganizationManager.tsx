@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -28,31 +28,28 @@ export const OrganizationManager = () => {
   }, []);
 
   const fetchOrganizations = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) return;
+    try {
+      const orgs = await api.organizations.mine();
+      const mapped: Organization[] = (orgs || []).map((org: any) => ({
+        id: org.id,
+        name: org.name,
+        subheadline: org.subheadline || "",
+        photo_url: org.photoUrl || "",
+        created_by: org.createdBy,
+      }));
+      setOrganizations(mapped);
 
-    const { data: memberOrgs, error } = await supabase
-      .from('organization_members')
-      .select('organization_id, organizations(*)')
-      .eq('user_id', user.id);
-
-    if (error) {
+      for (const org of mapped) {
+        const members = await api.organizations.members(org.id);
+        setMemberCounts((prev) => ({ ...prev, [org.id]: members?.length || 0 }));
+      }
+    } catch (error: any) {
       console.error('Error fetching organizations:', error);
-      return;
-    }
-
-    const orgs = memberOrgs?.map((m: any) => m.organizations).filter(Boolean) || [];
-    setOrganizations(orgs);
-
-    // Fetch member counts
-    for (const org of orgs) {
-      const { count } = await supabase
-        .from('organization_members')
-        .select('*', { count: 'exact', head: true })
-        .eq('organization_id', org.id);
-      
-      setMemberCounts(prev => ({ ...prev, [org.id]: count || 0 }));
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to load organizations",
+        variant: "destructive",
+      });
     }
   };
 

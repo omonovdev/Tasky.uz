@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { ChangeEvent, useState } from "react";
+import { api } from "@/lib/api";
+import { authJwt } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,10 +12,23 @@ import { z } from "zod";
 import { useTranslation } from "react-i18next";
 
 const organizationSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(100, "Name must be less than 100 characters"),
-  subheadline: z.string().max(200, "Subheadline must be less than 200 characters").optional(),
-  description: z.string().max(2000, "Description must be less than 2000 characters").optional(),
-  motto: z.string().max(200, "Motto must be less than 200 characters").optional(),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(100, "Name must be less than 100 characters"),
+  subheadline: z
+    .string()
+    .max(200, "Subheadline must be less than 200 characters")
+    .optional(),
+  description: z
+    .string()
+    .max(2000, "Description must be less than 2000 characters")
+    .optional(),
+  motto: z
+    .string()
+    .max(200, "Motto must be less than 200 characters")
+    .optional(),
 });
 
 interface Employee {
@@ -44,74 +58,42 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
   const [isCreating, setIsCreating] = useState(false);
   const { toast } = useToast();
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handlePhotoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
-
-    // ✅ Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "File too large",
-        description: "Please upload an image smaller than 5MB",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const fileExt = file.name.split('.').pop();
-    const fileName = `org-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-    const filePath = `${fileName}`;
-
     try {
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      setPhotoUrl(data.publicUrl);
-      
-      toast({
-        title: "Success",
-        description: "Photo uploaded successfully",
-      });
+      const uploaded = await api.uploads.upload(file, "org_photos");
+      setPhotoUrl(uploaded.url);
     } catch (error: any) {
-      console.error("Upload error:", error);
       toast({
         title: "Upload failed",
-        description: error.message || "Failed to upload photo",
+        description: error?.message || "Could not upload photo",
         variant: "destructive",
       });
+    } finally {
+      event.target.value = "";
     }
   };
 
   const searchEmployees = async () => {
-    if (!searchQuery.trim()) return;
-    
-    setIsSearching(true);
+    const q = searchQuery.trim();
+    if (!q) return;
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, first_name, last_name, email')
-        .or(`first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
-        .limit(5);
-
-      if (error) throw error;
-
-      const results: Employee[] = data?.map(profile => ({
-        id: profile.id,
-        first_name: profile.first_name || 'Unknown',
-        last_name: profile.last_name || '',
-        email: profile.email || 'No email'
-      })) || [];
-
-      setSearchResults(results);
+      setIsSearching(true);
+      const exclude = authJwt.getUserId() || undefined;
+      const results = await api.users.search(q, exclude);
+      const mapped: Employee[] = (results || []).map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        first_name: u.firstName,
+        last_name: u.lastName,
+      }));
+      const selectedIds = new Set(selectedEmployees.map((e) => e.id));
+      setSearchResults(mapped.filter((e) => !selectedIds.has(e.id)));
     } catch (error: any) {
-      console.error("Search error:", error);
       toast({
         title: "Search failed",
-        description: error.message || "Failed to search employees",
+        description: error?.message || "Could not search users",
         variant: "destructive",
       });
     } finally {
@@ -119,21 +101,16 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
     }
   };
 
-  const addEmployee = (employee: Employee) => {
-    if (!selectedEmployees.find(e => e.id === employee.id)) {
-      setSelectedEmployees([...selectedEmployees, employee]);
-    }
-    setSearchQuery("");
-    setSearchResults([]);
+  const addEmployee = (emp: Employee) => {
+    setSelectedEmployees((prev) => (prev.some((e) => e.id === emp.id) ? prev : [...prev, emp]));
+    setSearchResults((prev) => prev.filter((e) => e.id !== emp.id));
   };
 
   const removeEmployee = (id: string) => {
-    setSelectedEmployees(selectedEmployees.filter(e => e.id !== id));
+    setSelectedEmployees((prev) => prev.filter((e) => e.id !== id));
   };
 
-  // ✅ FIXED: Create organization with atomic transaction
   const handleCreate = async () => {
-    // ✅ Validate inputs
     const validation = organizationSchema.safeParse({
       name,
       subheadline,
@@ -152,108 +129,53 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
     }
 
     setIsCreating(true);
-
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error("Not authenticated");
-      }
-
-      console.log("🚀 Creating organization...");
-
-      // ✅ STEP 1: Create organization
-      const { data: org, error: orgError } = await supabase
-        .from('organizations')
-        .insert({
-          name: name.trim(),
-          subheadline: subheadline.trim() || null,
-          description: description.trim() || null,
-          motto: motto.trim() || null,
-          photo_url: photoUrl || null,
-          agreement_text: agreementText.trim() || null,
-          created_by: user.id
-        })
-        .select()
-        .single();
-
-      if (orgError) {
-        console.error("❌ Organization creation error:", orgError);
-        throw orgError;
-      }
-
-      console.log("✅ Organization created:", org.id);
-
-      // ✅ STEP 2: Add creator as CEO (this should not cause recursion with fixed policies)
-      const { error: memberError } = await supabase
-        .from('organization_members')
-        .insert({
-          organization_id: org.id,
-          user_id: user.id,
-          position: 'CEO',
-          added_by: user.id
-        });
-
-      if (memberError) {
-        console.error("❌ Member insertion error:", memberError);
-        
-        // ✅ Rollback: Delete the organization if member insertion fails
-        await supabase.from('organizations').delete().eq('id', org.id);
-        
-        throw new Error(`Failed to add creator as member: ${memberError.message}`);
-      }
-
-      console.log("✅ Creator added as CEO");
-
-      // ✅ STEP 3: Store organization ID in localStorage for dashboard
-      localStorage.setItem("selectedOrganizationId", org.id);
-
-      // ✅ STEP 4: Send invitations to selected employees (non-blocking)
-      if (selectedEmployees.length > 0) {
-        console.log(`📧 Sending invitations to ${selectedEmployees.length} employees...`);
-        
-        const { error: invitationError } = await supabase
-          .from('organization_invitations')
-          .insert(
-            selectedEmployees.map(emp => ({
-              organization_id: org.id,
-              employee_id: emp.id,
-              invitation_message: agreementText.trim() || null,
-              status: 'pending'
-            }))
-          );
-
-        if (invitationError) {
-          console.error("⚠️ Invitation error (non-critical):", invitationError);
-          // Don't fail the whole operation
-        } else {
-          console.log("✅ Invitations sent");
-        }
-      }
-
-      // ✅ Success!
-      toast({
-        title: "Success! 🎉",
-        description: `Organization "${name}" has been created successfully.`,
+      const org = await api.organizations.create({
+        name: name.trim(),
+        subheadline: subheadline.trim() || undefined,
+        description: description.trim() || undefined,
+        motto: motto.trim() || undefined,
+        photoUrl: photoUrl || undefined,
+        agreementText: agreementText.trim() || undefined,
       });
 
-      onSuccess();
-    } catch (error: any) {
-      console.error("❌ Critical error:", error);
-      
-      let errorMessage = error.message;
-      
-      // ✅ Handle specific error codes
-      if (error.code === '42P17') {
-        errorMessage = "Database policy error. Please contact support.";
-      } else if (error.code === '23505') {
-        errorMessage = "An organization with this name already exists.";
-      } else if (error.message?.includes("infinite recursion")) {
-        errorMessage = "Database configuration error. Please contact support.";
+      localStorage.setItem("selectedOrganizationId", org.id);
+
+      // Dispatch event to notify other components
+      window.dispatchEvent(new CustomEvent("organization-switched", {
+        detail: { organizationId: org.id }
+      }));
+
+      if (selectedEmployees.length > 0) {
+        await Promise.allSettled(
+          selectedEmployees.map((emp) =>
+            api.organizations.invite(org.id, {
+              employeeId: emp.id,
+              invitationMessage: agreementText.trim() || undefined,
+            }),
+          ),
+        );
       }
 
       toast({
+        title: t("success") || "Success",
+        description: `Organization "${name.trim()}" has been created successfully.`,
+      });
+
+      setName("");
+      setSubheadline("");
+      setDescription("");
+      setMotto("");
+      setAgreementText("");
+      setPhotoUrl("");
+      setSelectedEmployees([]);
+      setSearchQuery("");
+      setSearchResults([]);
+      onSuccess();
+    } catch (error: any) {
+      toast({
         title: "Failed to create organization",
-        description: errorMessage,
+        description: error?.message || "An unexpected error occurred",
         variant: "destructive",
       });
     } finally {
@@ -263,12 +185,16 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
 
   return (
     <div className="space-y-6">
-      {/* ✅ Photo Upload */}
+      {/* Photo Upload */}
       <div>
         <Label htmlFor="photo">Organization Photo</Label>
         <div className="mt-2 flex items-center gap-4">
           {photoUrl && (
-            <img src={photoUrl} alt="Organization" className="w-20 h-20 rounded-lg object-cover border-2 border-border" />
+            <img
+              src={photoUrl}
+              alt="Organization"
+              className="w-20 h-20 rounded-lg object-cover border-2 border-border"
+            />
           )}
           <Label htmlFor="photo-upload" className="cursor-pointer">
             <div className="flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors">
@@ -281,24 +207,29 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
               accept="image/*"
               className="hidden"
               onChange={handlePhotoUpload}
+              disabled={isCreating}
             />
           </Label>
         </div>
       </div>
 
-      {/* ✅ Organization Name */}
+      {/* Organization Name */}
       <div>
-        <Label htmlFor="name">Organization Name *</Label>
+        <Label htmlFor="name">
+          Organization Name <span className="text-destructive">*</span>
+        </Label>
         <Input
           id="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g., Acme Corporation"
           required
+          disabled={isCreating}
+          maxLength={100}
         />
       </div>
 
-      {/* ✅ Subheadline */}
+      {/* Subheadline */}
       <div>
         <Label htmlFor="subheadline">Tagline</Label>
         <Input
@@ -306,10 +237,12 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
           value={subheadline}
           onChange={(e) => setSubheadline(e.target.value)}
           placeholder="e.g., Building the future together"
+          disabled={isCreating}
+          maxLength={200}
         />
       </div>
 
-      {/* ✅ Description */}
+      {/* Description */}
       <div>
         <Label htmlFor="description">Description</Label>
         <Textarea
@@ -318,10 +251,12 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Tell us about your organization..."
           rows={3}
+          disabled={isCreating}
+          maxLength={2000}
         />
       </div>
 
-      {/* ✅ Motto */}
+      {/* Motto */}
       <div>
         <Label htmlFor="motto">Motto</Label>
         <Input
@@ -329,10 +264,12 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
           value={motto}
           onChange={(e) => setMotto(e.target.value)}
           placeholder="e.g., Innovation through collaboration"
+          disabled={isCreating}
+          maxLength={200}
         />
       </div>
 
-      {/* ✅ Agreement Text */}
+      {/* Agreement Text */}
       <div>
         <Label htmlFor="agreement">Welcome Message / Agreement</Label>
         <Textarea
@@ -341,10 +278,11 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
           onChange={(e) => setAgreementText(e.target.value)}
           placeholder="This message will be sent to invited members..."
           rows={4}
+          disabled={isCreating}
         />
       </div>
 
-      {/* ✅ Employee Search */}
+      {/* Employee Search */}
       <div>
         <Label>Invite Team Members (Optional)</Label>
         <div className="mt-2 flex gap-2">
@@ -353,13 +291,13 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && searchEmployees()}
+              onKeyDown={(e) => e.key === "Enter" && !isSearching && searchEmployees()}
               placeholder="Search by name or email..."
               className="pl-9"
-              disabled={isSearching}
+              disabled={isSearching || isCreating}
             />
           </div>
-          <Button onClick={searchEmployees} disabled={isSearching}>
+          <Button onClick={() => searchEmployees()} disabled={isSearching || isCreating || !searchQuery.trim()}>
             {isSearching ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -371,45 +309,49 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
           </Button>
         </div>
 
-        {/* ✅ Search Results */}
+        {/* Search Results */}
         {searchResults.length > 0 && (
-          <div className="mt-2 border rounded-md bg-card shadow-sm">
+          <div className="mt-2 border rounded-md bg-card shadow-sm max-h-64 overflow-y-auto">
             {searchResults.map((emp) => (
               <button
                 key={emp.id}
                 type="button"
                 onClick={() => addEmployee(emp)}
-                className="w-full px-4 py-3 text-left hover:bg-accent transition-colors border-b last:border-b-0"
+                disabled={isCreating}
+                className="w-full px-4 py-3 text-left hover:bg-accent transition-colors border-b last:border-b-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <div className="font-medium">{emp.first_name} {emp.last_name}</div>
+                <div className="font-medium">
+                  {emp.first_name} {emp.last_name}
+                </div>
                 <div className="text-sm text-muted-foreground">{emp.email}</div>
               </button>
             ))}
           </div>
         )}
-        
-        {/* ✅ Selected Employees */}
+
+        {/* Selected Employees */}
         {selectedEmployees.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {selectedEmployees.map((emp) => (
-              <EmployeeChip
-                key={emp.id}
-                name={`${emp.first_name} ${emp.last_name}`}
-                email={emp.email}
-                onRemove={() => removeEmployee(emp.id)}
-              />
-            ))}
+          <div className="mt-3">
+            <p className="text-sm text-muted-foreground mb-2">
+              Selected members ({selectedEmployees.length})
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {selectedEmployees.map((emp) => (
+                <EmployeeChip
+                  key={emp.id}
+                  name={`${emp.first_name} ${emp.last_name}`}
+                  email={emp.email}
+                  onRemove={() => removeEmployee(emp.id)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>
 
-      {/* ✅ Action Buttons */}
-      <div className="flex gap-2">
-        <Button 
-          onClick={handleCreate} 
-          className="flex-1" 
-          disabled={isCreating || !name.trim()}
-        >
+      {/* Action Buttons */}
+      <div className="flex gap-2 pt-4">
+        <Button onClick={handleCreate} className="flex-1" disabled={isCreating || !name.trim()}>
           {isCreating ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -426,3 +368,4 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
     </div>
   );
 };
+

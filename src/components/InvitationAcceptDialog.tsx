@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authJwt } from "@/lib/auth";
 
 export default function InvitationAcceptDialog() {
   const navigate = useNavigate();
@@ -11,20 +12,15 @@ export default function InvitationAcceptDialog() {
 
   const checkForPendingInvitation = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const userId = authJwt.getUserId();
+      if (!userId) return;
 
-      const { data: invitations, error } = await supabase
-        .from("organization_invitations")
-        .select("id")
-        .eq("employee_id", user.id)
-        .eq("status", "pending")
-        .single();
-
-      if (error || !invitations) return;
+      const invitations = await api.organizations.myInvitations("pending");
+      const first = invitations?.[0];
+      if (!first?.id) return;
 
       // Redirect to invitation acceptance page
-      navigate(`/accept-invitation?id=${invitations.id}`);
+      navigate(`/accept-invitation?id=${first.id}`);
     } catch (error: any) {
       console.error("Error checking invitations:", error);
     }

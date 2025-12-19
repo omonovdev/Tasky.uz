@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
@@ -106,33 +106,18 @@ const ImageEditor = () => {
     
     try {
       setSaving(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
 
-      // Convert canvas to blob
-      const blob = await new Promise<Blob>((resolve) => {
-        canvasRef.current?.toBlob((b) => resolve(b!), "image/jpeg", 0.9);
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvasRef.current?.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("Failed to create image"))),
+          "image/jpeg",
+          0.9,
+        );
       });
 
-      const fileExt = "jpg";
-      const fileName = `${user.id}/${Math.random()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(fileName, blob);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from("avatars")
-        .getPublicUrl(fileName);
-
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({ avatar_url: publicUrl })
-        .eq("id", user.id);
-
-      if (updateError) throw updateError;
+      const file = new File([blob], "avatar.jpg", { type: "image/jpeg" });
+      const uploaded = await api.uploads.upload(file, "avatars");
+      await api.users.updateMe({ avatarUrl: uploaded.url });
 
       toast({
         title: "Success",

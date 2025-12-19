@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Calendar as CalendarIcon, Clock } from "lucide-react";
 import { format } from "date-fns";
@@ -46,13 +46,7 @@ const EditTaskDialog = ({ taskId, organizationId, open, onOpenChange, onTaskUpda
 
   const fetchTaskDetails = async () => {
     try {
-      const { data: task, error: taskError } = await supabase
-        .from("tasks")
-        .select("*")
-        .eq("id", taskId)
-        .single();
-
-      if (taskError) throw taskError;
+      const task = await api.tasks.get(taskId);
 
       setTitle(task.title);
       setDescription(task.description || "");
@@ -61,15 +55,7 @@ const EditTaskDialog = ({ taskId, organizationId, open, onOpenChange, onTaskUpda
       setDeadline(deadlineDate);
       setDeadlineTime(format(deadlineDate, "HH:mm"));
 
-      // Fetch task assignments
-      const { data: assignments, error: assignmentError } = await supabase
-        .from("task_assignments")
-        .select("user_id")
-        .eq("task_id", taskId);
-
-      if (assignmentError) throw assignmentError;
-
-      setSelectedMembers(assignments.map(a => a.user_id));
+      setSelectedMembers((task.assignments || []).map((a: any) => a.userId));
     } catch (error: any) {
       toast({
         title: "Error",
@@ -81,21 +67,11 @@ const EditTaskDialog = ({ taskId, organizationId, open, onOpenChange, onTaskUpda
 
   const fetchMembers = async () => {
     try {
-      const { data, error } = await supabase
-        .from("organization_members")
-        .select(`
-          user_id,
-          position,
-          profiles!inner(first_name, last_name)
-        `)
-        .eq("organization_id", organizationId);
-
-      if (error) throw error;
-
-      const formattedMembers = data.map((item: any) => ({
-        user_id: item.user_id,
-        first_name: item.profiles.first_name,
-        last_name: item.profiles.last_name,
+      const data = await api.organizations.members(organizationId);
+      const formattedMembers = (data || []).map((item: any) => ({
+        user_id: item.userId,
+        first_name: item.user?.firstName || "Unknown",
+        last_name: item.user?.lastName || "",
         position: item.position,
       }));
 
@@ -132,38 +108,14 @@ const EditTaskDialog = ({ taskId, organizationId, open, onOpenChange, onTaskUpda
         finalDeadline.setHours(parseInt(hours), parseInt(minutes), 0, 0);
       }
 
-      // Update task
-      const { error: taskError } = await supabase
-        .from("tasks")
-        .update({
-          title,
-          description,
-          goal,
-          deadline: finalDeadline?.toISOString(),
-        })
-        .eq("id", taskId);
-
-      if (taskError) throw taskError;
-
-      // Delete existing assignments
-      const { error: deleteError } = await supabase
-        .from("task_assignments")
-        .delete()
-        .eq("task_id", taskId);
-
-      if (deleteError) throw deleteError;
-
-      // Create new assignments
-      const assignments = selectedMembers.map(memberId => ({
-        task_id: taskId,
-        user_id: memberId,
-      }));
-
-      const { error: assignmentError } = await supabase
-        .from("task_assignments")
-        .insert(assignments);
-
-      if (assignmentError) throw assignmentError;
+      await api.tasks.update(taskId, {
+        title,
+        description,
+        goal,
+        deadline: finalDeadline?.toISOString(),
+        assignedToId: selectedMembers[0],
+        assigneeIds: selectedMembers,
+      });
 
       toast({
         title: "Success",

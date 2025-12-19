@@ -1,16 +1,35 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { authState } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Target, Plus, Trash2, MoreVertical, Pencil } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { 
+  Target, 
+  Plus, 
+  Trash2, 
+  Pencil, 
+  Calendar,
+  CheckCircle,
+  Clock,
+  TrendingUp,
+  Sparkles,
+  Award,
+  Flag,
+  Zap
+} from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { format } from "date-fns";
+import { formatRelativeTime } from "@/lib/time";
+import WinterBackground from "@/components/WinterBackground";
 
 interface Goal {
   id: string;
@@ -19,11 +38,13 @@ interface Goal {
   description: string | null;
   deadline: string | null;
   picture_url: string | null;
+  created_at: string;
 }
 
 const Goals = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { t, i18n } = useTranslation();
   const [weeklyGoals, setWeeklyGoals] = useState<Goal[]>([]);
   const [monthlyGoals, setMonthlyGoals] = useState<Goal[]>([]);
   const [yearlyGoals, setYearlyGoals] = useState<Goal[]>([]);
@@ -37,43 +58,38 @@ const Goals = () => {
   const [yearlyGoalDescription, setYearlyGoalDescription] = useState("");
   const [yearlyGoalDeadline, setYearlyGoalDeadline] = useState<Date>();
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [editGoalText, setEditGoalText] = useState("");
   const [editGoalDescription, setEditGoalDescription] = useState("");
   const [editGoalDeadline, setEditGoalDeadline] = useState<Date>();
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [addGoalType, setAddGoalType] = useState<"weekly" | "monthly" | "yearly">("weekly");
 
   useEffect(() => {
-    checkAuth();
+    if (!authState.isLoggedIn()) navigate("/auth");
     fetchGoals();
   }, []);
 
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/auth");
-    }
-  };
-
   const fetchGoals = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const data = await api.goals.list();
 
-      const { data, error } = await supabase
-        .from("user_goals")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      const mapped: Goal[] = (data || []).map((g: any) => ({
+        id: g.id,
+        goal_type: g.goalType,
+        goal_text: g.goalText,
+        description: g.description ?? null,
+        deadline: g.deadline ?? null,
+        picture_url: g.pictureUrl ?? null,
+        created_at: g.createdAt,
+      }));
 
-      if (error) throw error;
-
-      setWeeklyGoals(data.filter((g) => g.goal_type === "weekly"));
-      setMonthlyGoals(data.filter((g) => g.goal_type === "monthly"));
-      setYearlyGoals(data.filter((g) => g.goal_type === "yearly"));
+      setWeeklyGoals(mapped.filter((g) => g.goal_type === "weekly"));
+      setMonthlyGoals(mapped.filter((g) => g.goal_type === "monthly"));
+      setYearlyGoals(mapped.filter((g) => g.goal_type === "yearly"));
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -85,33 +101,26 @@ const Goals = () => {
   const addGoal = async (goalType: string, text: string, description: string, deadline?: Date) => {
     if (!text.trim()) {
       toast({
-        title: "Error",
-        description: "Please enter a goal",
+        title: t("common.error"),
+        description: t("goalsPage.missingTitle"),
         variant: "destructive",
       });
       return;
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { error } = await supabase.from("user_goals").insert({
-        user_id: user.id,
-        goal_type: goalType,
-        goal_text: text.trim(),
-        description: description.trim() || null,
-        deadline: deadline?.toISOString() || null,
+      await api.goals.create({
+        goalType,
+        goalText: text.trim(),
+        description: description.trim() || undefined,
+        deadline: deadline?.toISOString(),
       });
-
-      if (error) throw error;
 
       toast({
-        title: "Success",
-        description: "Goal added successfully",
+        title: t("common.success"),
+        description: t("goalsPage.addSuccess"),
       });
 
-      // Reset the appropriate fields based on goal type
       if (goalType === "weekly") {
         setWeeklyGoalText("");
         setWeeklyGoalDescription("");
@@ -126,10 +135,11 @@ const Goals = () => {
         setYearlyGoalDeadline(undefined);
       }
       
+      setShowAddDialog(false);
       fetchGoals();
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -138,22 +148,17 @@ const Goals = () => {
 
   const deleteGoal = async (goalId: string) => {
     try {
-      const { error } = await supabase
-        .from("user_goals")
-        .delete()
-        .eq("id", goalId);
-
-      if (error) throw error;
+      await api.goals.delete(goalId);
 
       toast({
-        title: "Success",
-        description: "Goal deleted successfully",
+        title: t("common.success"),
+        description: t("goalsPage.deleteSuccess"),
       });
 
       fetchGoals();
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -164,21 +169,15 @@ const Goals = () => {
     if (!editingGoal || !editGoalText.trim()) return;
 
     try {
-      const { error } = await supabase
-        .from("user_goals")
-        .update({
-          goal_text: editGoalText.trim(),
-          description: editGoalDescription.trim() || null,
-          deadline: editGoalDeadline?.toISOString() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", editingGoal.id);
-
-      if (error) throw error;
+      await api.goals.update(editingGoal.id, {
+        goalText: editGoalText.trim(),
+        description: editGoalDescription.trim() || undefined,
+        deadline: editGoalDeadline?.toISOString(),
+      });
 
       toast({
-        title: "Success",
-        description: "Goal updated successfully",
+        title: t("common.success"),
+        description: t("goalsPage.updateSuccess"),
       });
 
       setEditingGoal(null);
@@ -188,7 +187,7 @@ const Goals = () => {
       fetchGoals();
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -202,218 +201,539 @@ const Goals = () => {
     setEditGoalDeadline(goal.deadline ? new Date(goal.deadline) : undefined);
   };
 
-  const GoalsList = ({ goals, goalType, text, setText, description, setDescription, deadline, setDeadline }: { 
-    goals: Goal[]; 
-    goalType: string;
-    text: string;
-    setText: (text: string) => void;
-    description: string;
-    setDescription: (desc: string) => void;
-    deadline?: Date;
-    setDeadline: (date?: Date) => void;
-  }) => (
-    <div className="space-y-4">
-      <div className="space-y-3">
-        <Label>Add New {goalType.charAt(0).toUpperCase() + goalType.slice(1)} Goal</Label>
-        <Input
-          placeholder="Goal title..."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
-        <Input
-          placeholder="Description (optional)..."
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-        <Input
-          type="date"
-          value={deadline ? deadline.toISOString().split('T')[0] : ""}
-          onChange={(e) => setDeadline(e.target.value ? new Date(e.target.value) : undefined)}
-          placeholder="Deadline (optional)"
-        />
-        <Button onClick={() => addGoal(goalType, text, description, deadline)} className="w-full">
+  const openAddDialog = (type: "weekly" | "monthly" | "yearly") => {
+    setAddGoalType(type);
+    setShowAddDialog(true);
+  };
+
+  const getGoalTypeConfig = (type: string) => {
+    switch (type) {
+      case "weekly":
+        return {
+          color: "from-blue-500 to-cyan-600",
+          bgColor: "from-blue-50 to-cyan-50 dark:from-blue-950/20 dark:to-cyan-950/20",
+          borderColor: "border-blue-200 dark:border-blue-800",
+          icon: Zap,
+          iconBg: "bg-blue-100 dark:bg-blue-900/30",
+          iconColor: "text-blue-600 dark:text-blue-400",
+          badgeColor: "bg-blue-500",
+        };
+      case "monthly":
+        return {
+          color: "from-purple-500 to-pink-600",
+          bgColor: "from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20",
+          borderColor: "border-purple-200 dark:border-purple-800",
+          icon: TrendingUp,
+          iconBg: "bg-purple-100 dark:bg-purple-900/30",
+          iconColor: "text-purple-600 dark:text-purple-400",
+          badgeColor: "bg-purple-500",
+        };
+      case "yearly":
+        return {
+          color: "from-amber-500 to-orange-600",
+          bgColor: "from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20",
+          borderColor: "border-amber-200 dark:border-amber-800",
+          icon: Award,
+          iconBg: "bg-amber-100 dark:bg-amber-900/30",
+          iconColor: "text-amber-600 dark:text-amber-400",
+          badgeColor: "bg-amber-500",
+        };
+      default:
+        return {
+          color: "from-blue-500 to-cyan-600",
+          bgColor: "from-blue-50 to-cyan-50",
+          borderColor: "border-blue-200",
+          icon: Target,
+          iconBg: "bg-blue-100",
+          iconColor: "text-blue-600",
+          badgeColor: "bg-blue-500",
+        };
+    }
+  };
+
+  const GoalCard = ({ goal }: { goal: Goal }) => {
+    const config = getGoalTypeConfig(goal.goal_type);
+    const Icon = config.icon;
+    const daysUntilDeadline = goal.deadline
+      ? Math.ceil(
+          (new Date(goal.deadline).getTime() - new Date().getTime()) /
+            (1000 * 60 * 60 * 24)
+        )
+      : null;
+    const deadlineDate = goal.deadline ? new Date(goal.deadline) : null;
+
+    return (
+      <div
+        className={cn(
+          "group relative p-6 rounded-2xl border-0 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 animate-slide-in",
+          "bg-gradient-to-br backdrop-blur-sm ring-1 ring-white/30",
+          config.bgColor
+        )}
+      >
+        {/* Background Icon */}
+        <div className="absolute top-4 right-4 opacity-10">
+          <Icon className="h-20 w-20" />
+        </div>
+
+        <div className="relative z-10">
+          <div className="flex items-start justify-between mb-4">
+            <div className={cn("p-3 rounded-xl", config.iconBg)}>
+              <Icon className={cn("h-6 w-6", config.iconColor)} />
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => startEditGoal(goal)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white dark:hover:bg-slate-800"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => deleteGoal(goal.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+            {goal.goal_text}
+          </h3>
+
+          {goal.description && (
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 line-clamp-2">
+              {goal.description}
+            </p>
+          )}
+
+          <div className="flex items-center gap-3 flex-wrap">
+            {deadlineDate && (
+              <>
+                <Badge variant="secondary" className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  <span>{format(deadlineDate, "dd MMM yyyy")}</span>
+                </Badge>
+                <Badge variant="secondary" className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {daysUntilDeadline !== null &&
+                    (daysUntilDeadline > 0 ? (
+                      <span>
+                        {t("goalsPage.daysLeft", { count: daysUntilDeadline })}
+                      </span>
+                    ) : daysUntilDeadline === 0 ? (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        {t("goalsPage.dueToday")}
+                      </span>
+                    ) : (
+                      <span className="text-red-600 dark:text-red-400">
+                        {t("goalsPage.overdue")}
+                      </span>
+                    ))}
+                </Badge>
+              </>
+            )}
+
+              <Badge variant="secondary" className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {formatRelativeTime(new Date(goal.created_at), i18n.language)}
+              </Badge>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const EmptyState = ({ type }: { type: string }) => {
+    const config = getGoalTypeConfig(type);
+    const Icon = config.icon;
+    const heading =
+      type === "weekly"
+        ? t("goalsPage.noWeekly")
+        : type === "monthly"
+        ? t("goalsPage.noMonthly")
+        : t("goalsPage.noYearly");
+    const addLabel = t("goalsPage.addNewGoal", {
+      type: t(
+        type === "weekly"
+          ? "goalsPage.weekly"
+          : type === "monthly"
+          ? "goalsPage.monthly"
+          : "goalsPage.yearly"
+      ),
+    });
+
+    return (
+      <div className="text-center py-16">
+        <div className={cn("w-20 h-20 mx-auto mb-4 rounded-full flex items-center justify-center", config.iconBg)}>
+          <Icon className={cn("h-10 w-10", config.iconColor)} />
+        </div>
+        <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+          {heading}
+        </h3>
+        <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+          {t("goalsPage.startGoals")}
+        </p>
+        <Button
+          onClick={() => openAddDialog(type as any)}
+          className={cn("bg-gradient-to-r shadow-lg", config.color)}
+        >
           <Plus className="h-4 w-4 mr-2" />
-          Add Goal
+          {addLabel}
         </Button>
       </div>
-
-      <div className="space-y-2">
-        {goals.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-8">
-            No {goalType} goals set yet
-          </p>
-        ) : (
-          goals.map((goal) => (
-            <div
-              key={goal.id}
-              className="p-4 border rounded-lg bg-card space-y-2"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <p className="font-medium">{goal.goal_text}</p>
-                  {goal.description && (
-                    <p className="text-sm text-muted-foreground mt-1">{goal.description}</p>
-                  )}
-                  {goal.deadline && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Deadline: {new Date(goal.deadline).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => startEditGoal(goal)}>
-                      <Pencil className="h-4 w-4 mr-2" />
-                      Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={() => deleteGoal(goal.id)}
-                      className="text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
+    );
+  };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex items-center justify-center min-h-screen relative">
+        <WinterBackground />
+        <div className="text-center relative z-10">
+          <div className="relative w-16 h-16 mx-auto mb-4">
+            <div className="absolute inset-0 rounded-full border-4 border-primary/20"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+            <Target className="absolute inset-0 m-auto h-6 w-6 text-primary animate-pulse" />
+          </div>
+          <p className="text-slate-600 dark:text-slate-400 font-medium">{t("goalsPage.loading")}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen max-h-screen overflow-y-auto p-6 pb-24">
-      <div className="container max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center gap-3">
-          <Target className="h-8 w-8 text-primary" />
-          <div>
-            <h1 className="text-3xl font-bold">Goals</h1>
-            <p className="text-muted-foreground">Set and track your weekly, monthly, and yearly goals</p>
+    <div className="min-h-screen max-h-screen overflow-y-auto pb-24 relative">
+      <WinterBackground />
+      <div className="container max-w-6xl mx-auto p-6 space-y-6 relative z-10">
+        {/* Header */}
+        <div className="animate-fade-in">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg">
+              <Target className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
+                {t("goalsPage.title")}
+              </h1>
+              <p className="text-slate-600 dark:text-slate-400">
+                {t("goalsPage.subtitle")}
+              </p>
+            </div>
           </div>
         </div>
 
-        <Tabs defaultValue="weekly" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="weekly">Weekly</TabsTrigger>
-            <TabsTrigger value="monthly">Monthly</TabsTrigger>
-            <TabsTrigger value="yearly">Yearly</TabsTrigger>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fade-in" style={{ animationDelay: "100ms" }}>
+          {[
+            { type: "weekly", count: weeklyGoals.length, icon: Zap, color: "from-blue-500 to-cyan-600" },
+          { type: "monthly", count: monthlyGoals.length, icon: TrendingUp, color: "from-purple-500 to-pink-600" },
+          { type: "yearly", count: yearlyGoals.length, icon: Award, color: "from-amber-500 to-orange-600" },
+        ].map((stat, index) => {
+          const label =
+            stat.type === "weekly"
+              ? t("goalsPage.weeklyGoals")
+              : stat.type === "monthly"
+              ? t("goalsPage.monthlyGoals")
+              : t("goalsPage.yearlyGoals");
+          const Icon = stat.icon;
+          return (
+            <Card key={stat.type} className="border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 hover:shadow-xl transition-all duration-300">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-1 capitalize">
+                      {label}
+                    </p>
+                      <p className="text-3xl font-bold text-slate-900 dark:text-white">
+                        {stat.count}
+                      </p>
+                    </div>
+                    <div className={cn("p-3 rounded-xl bg-gradient-to-br", stat.color)}>
+                      <Icon className="h-6 w-6 text-white" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Tabs */}
+        <Tabs defaultValue="weekly" className="w-full animate-fade-in" style={{ animationDelay: "200ms" }}>
+          <TabsList className="grid w-full grid-cols-3 p-1.5 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md ring-1 ring-white/20 rounded-2xl h-auto">
+            <TabsTrigger 
+              value="weekly" 
+              className="rounded-xl data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all duration-200 py-3"
+            >
+              <Zap className="h-4 w-4 mr-2" />
+              {t("goalsPage.weekly")}
+            </TabsTrigger>
+            <TabsTrigger 
+              value="monthly"
+              className="rounded-xl data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-600 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all duration-200 py-3"
+            >
+              <TrendingUp className="h-4 w-4 mr-2" />
+              {t("goalsPage.monthly")}
+            </TabsTrigger>
+            <TabsTrigger 
+              value="yearly"
+              className="rounded-xl data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:to-orange-600 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all duration-200 py-3"
+            >
+              <Award className="h-4 w-4 mr-2" />
+              {t("goalsPage.yearly")}
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="weekly">
-            <Card>
-              <CardHeader>
-                <CardTitle>Weekly Goals</CardTitle>
+          <TabsContent value="weekly" className="mt-6">
+            <Card className="border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 shadow-lg">
+              <CardHeader className="border-b border-white/30">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Zap className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    {t("goalsPage.weeklyGoals")}
+                  </CardTitle>
+                  <Button 
+                    onClick={() => openAddDialog("weekly")}
+                    size="sm"
+                    className="bg-gradient-to-r from-blue-500 to-cyan-600 shadow-lg hover:shadow-xl transition-all"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    {t("goalsPage.addGoal")}
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent>
-                <GoalsList 
-                  goals={weeklyGoals} 
-                  goalType="weekly"
-                  text={weeklyGoalText}
-                  setText={setWeeklyGoalText}
-                  description={weeklyGoalDescription}
-                  setDescription={setWeeklyGoalDescription}
-                  deadline={weeklyGoalDeadline}
-                  setDeadline={setWeeklyGoalDeadline}
-                />
+              <CardContent className="pt-6">
+                {weeklyGoals.length === 0 ? (
+                  <EmptyState type="weekly" />
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {weeklyGoals.map((goal, index) => (
+                      <div key={goal.id} style={{ animationDelay: `${index * 50}ms` }}>
+                        <GoalCard goal={goal} />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="monthly">
-            <Card>
-              <CardHeader>
-                <CardTitle>Monthly Goals</CardTitle>
+          <TabsContent value="monthly" className="mt-6">
+            <Card className="border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 shadow-lg">
+              <CardHeader className="border-b border-white/30">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    {t("goalsPage.monthlyGoals")}
+                  </CardTitle>
+                  <Button 
+                    onClick={() => openAddDialog("monthly")}
+                    size="sm"
+                    className="bg-gradient-to-r from-purple-500 to-pink-600 shadow-lg hover:shadow-xl transition-all"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    {t("goalsPage.addGoal")}
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent>
-                <GoalsList 
-                  goals={monthlyGoals} 
-                  goalType="monthly"
-                  text={monthlyGoalText}
-                  setText={setMonthlyGoalText}
-                  description={monthlyGoalDescription}
-                  setDescription={setMonthlyGoalDescription}
-                  deadline={monthlyGoalDeadline}
-                  setDeadline={setMonthlyGoalDeadline}
-                />
+              <CardContent className="pt-6">
+                {monthlyGoals.length === 0 ? (
+                  <EmptyState type="monthly" />
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {monthlyGoals.map((goal, index) => (
+                      <div key={goal.id} style={{ animationDelay: `${index * 50}ms` }}>
+                        <GoalCard goal={goal} />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="yearly">
-            <Card>
-              <CardHeader>
-                <CardTitle>Yearly Goals</CardTitle>
+          <TabsContent value="yearly" className="mt-6">
+            <Card className="border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 shadow-lg">
+              <CardHeader className="border-b border-white/30">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Award className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                    {t("goalsPage.yearlyGoals")}
+                  </CardTitle>
+                  <Button 
+                    onClick={() => openAddDialog("yearly")}
+                    size="sm"
+                    className="bg-gradient-to-r from-amber-500 to-orange-600 shadow-lg hover:shadow-xl transition-all"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    {t("goalsPage.addGoal")}
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent>
-                <GoalsList 
-                  goals={yearlyGoals} 
-                  goalType="yearly"
-                  text={yearlyGoalText}
-                  setText={setYearlyGoalText}
-                  description={yearlyGoalDescription}
-                  setDescription={setYearlyGoalDescription}
-                  deadline={yearlyGoalDeadline}
-                  setDeadline={setYearlyGoalDeadline}
-                />
+              <CardContent className="pt-6">
+                {yearlyGoals.length === 0 ? (
+                  <EmptyState type="yearly" />
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {yearlyGoals.map((goal, index) => (
+                      <div key={goal.id} style={{ animationDelay: `${index * 50}ms` }}>
+                        <GoalCard goal={goal} />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </div>
 
-      {/* Edit Goal Dialog */}
-      <Dialog open={!!editingGoal} onOpenChange={(open) => !open && setEditingGoal(null)}>
-        <DialogContent>
+      {/* Add Goal Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit Goal</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Flag className="h-5 w-5 text-primary" />
+              {t("goalsPage.addNewGoal", {
+                type:
+                  addGoalType === "weekly"
+                    ? t("goalsPage.weekly")
+                    : addGoalType === "monthly"
+                    ? t("goalsPage.monthly")
+                    : t("goalsPage.yearly"),
+              })}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Goal Title</Label>
+              <Label htmlFor="goalTitle">{t("goalsPage.goalTitle")} *</Label>
               <Input
+                id="goalTitle"
+                placeholder={t("goalsPage.titlePlaceholder")}
+                value={
+                  addGoalType === "weekly" ? weeklyGoalText :
+                  addGoalType === "monthly" ? monthlyGoalText :
+                  yearlyGoalText
+                }
+                onChange={(e) => {
+                  if (addGoalType === "weekly") setWeeklyGoalText(e.target.value);
+                  else if (addGoalType === "monthly") setMonthlyGoalText(e.target.value);
+                  else setYearlyGoalText(e.target.value);
+                }}
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label htmlFor="goalDescription">{t("goalsPage.description")}</Label>
+              <Textarea
+                id="goalDescription"
+                placeholder={t("goalsPage.descriptionPlaceholder")}
+                value={
+                  addGoalType === "weekly" ? weeklyGoalDescription :
+                  addGoalType === "monthly" ? monthlyGoalDescription :
+                  yearlyGoalDescription
+                }
+                onChange={(e) => {
+                  if (addGoalType === "weekly") setWeeklyGoalDescription(e.target.value);
+                  else if (addGoalType === "monthly") setMonthlyGoalDescription(e.target.value);
+                  else setYearlyGoalDescription(e.target.value);
+                }}
+                rows={3}
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label htmlFor="goalDeadline">{t("goalsPage.deadlineOptional")}</Label>
+              <Input
+                id="goalDeadline"
+                type="date"
+                value={
+                  addGoalType === "weekly" && weeklyGoalDeadline ? weeklyGoalDeadline.toISOString().split('T')[0] :
+                  addGoalType === "monthly" && monthlyGoalDeadline ? monthlyGoalDeadline.toISOString().split('T')[0] :
+                  addGoalType === "yearly" && yearlyGoalDeadline ? yearlyGoalDeadline.toISOString().split('T')[0] :
+                  ""
+                }
+                onChange={(e) => {
+                  const date = e.target.value ? new Date(e.target.value) : undefined;
+                  if (addGoalType === "weekly") setWeeklyGoalDeadline(date);
+                  else if (addGoalType === "monthly") setMonthlyGoalDeadline(date);
+                  else setYearlyGoalDeadline(date);
+                }}
+                className="mt-2"
+              />
+            </div>
+            <div className="flex gap-2 pt-4">
+              <Button variant="outline" onClick={() => setShowAddDialog(false)} className="flex-1">
+                {t("goalsPage.cancel")}
+              </Button>
+              <Button 
+                onClick={() => {
+                  if (addGoalType === "weekly") addGoal("weekly", weeklyGoalText, weeklyGoalDescription, weeklyGoalDeadline);
+                  else if (addGoalType === "monthly") addGoal("monthly", monthlyGoalText, monthlyGoalDescription, monthlyGoalDeadline);
+                  else addGoal("yearly", yearlyGoalText, yearlyGoalDescription, yearlyGoalDeadline);
+                }}
+                className="flex-1 bg-gradient-to-r from-primary to-primary/80"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {t("goalsPage.addGoal")}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Goal Dialog */}
+      <Dialog open={!!editingGoal} onOpenChange={(open) => !open && setEditingGoal(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-primary" />
+              {t("goalsPage.editGoal")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="editGoalTitle">{t("goalsPage.goalTitle")}</Label>
+              <Input
+                id="editGoalTitle"
                 value={editGoalText}
                 onChange={(e) => setEditGoalText(e.target.value)}
-                placeholder="Goal title..."
+                placeholder={t("goalsPage.titlePlaceholder")}
+                className="mt-2"
               />
             </div>
             <div>
-              <Label>Description</Label>
+              <Label htmlFor="editGoalDescription">{t("goalsPage.description")}</Label>
               <Textarea
+                id="editGoalDescription"
                 value={editGoalDescription}
                 onChange={(e) => setEditGoalDescription(e.target.value)}
-                placeholder="Description (optional)..."
+                placeholder={t("goalsPage.descriptionPlaceholder")}
                 rows={3}
+                className="mt-2"
               />
             </div>
             <div>
-              <Label>Deadline</Label>
+              <Label htmlFor="editGoalDeadline">{t("goalsPage.deadlineOptional")}</Label>
               <Input
+                id="editGoalDeadline"
                 type="date"
                 value={editGoalDeadline ? editGoalDeadline.toISOString().split('T')[0] : ""}
                 onChange={(e) => setEditGoalDeadline(e.target.value ? new Date(e.target.value) : undefined)}
+                className="mt-2"
               />
             </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setEditingGoal(null)}>
-                Cancel
+            <div className="flex gap-2 pt-4">
+              <Button variant="outline" onClick={() => setEditingGoal(null)} className="flex-1">
+                {t("goalsPage.cancel")}
               </Button>
-              <Button onClick={updateGoal}>
-                Save Changes
+              <Button onClick={updateGoal} className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600">
+                <CheckCircle className="h-4 w-4 mr-2" />
+                {t("goalsPage.saveChanges")}
               </Button>
             </div>
           </div>
