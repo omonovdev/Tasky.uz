@@ -17,7 +17,8 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   app.enableCors({
-    origin: clientOrigins.length > 0 ? clientOrigins : true,
+    origin: 'https://tasky.uz', // Faqat o'zingizning domeningizga ruxsat berish
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
 
