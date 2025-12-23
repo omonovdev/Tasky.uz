@@ -72,7 +72,7 @@ export const OrganizationManager = () => {
               New Organization
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-background dark:bg-slate-950">
             <DialogHeader>
               <DialogTitle>Create New Organization</DialogTitle>
             </DialogHeader>

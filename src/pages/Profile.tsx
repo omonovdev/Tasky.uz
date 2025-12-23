@@ -117,17 +117,47 @@ const Profile = () => {
   useEffect(() => {
     fetchProfile();
     fetchUserRole();
+    
+    // Refresh profile when window regains focus (e.g., after editing organization member)
+    const onFocus = () => fetchProfile();
+    window.addEventListener("focus", onFocus);
+    
+    // Refresh profile when organization is switched
+    const onOrgSwitch = () => fetchProfile();
+    window.addEventListener("organization-switched", onOrgSwitch as EventListener);
+    
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("organization-switched", onOrgSwitch as EventListener);
+    };
   }, []);
 
   const fetchProfile = async () => {
     try {
       const me = await api.users.me();
+      let position = me?.position || null;
+      
+      // Fetch position from current organization membership if exists
+      try {
+        const selectedOrgId = localStorage.getItem("selectedOrganizationId");
+        if (selectedOrgId && !selectedOrgId.startsWith("11111111-")) {
+          const memberships = await api.organizations.myMemberships();
+          const currentMembership = memberships?.find((m: any) => m.organization_id === selectedOrgId);
+          if (currentMembership?.position) {
+            position = currentMembership.position;
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching organization position:", err);
+        // Fall back to user position if org fetch fails
+      }
+      
       setProfile({
         first_name: me?.firstName || me?.email?.split("@")?.[0] || "",
         last_name: me?.lastName || "",
         date_of_birth: me?.dateOfBirth || null,
         organization: me?.organization || null,
-        position: me?.position || null,
+        position: position,
         avatar_url: me?.avatarUrl || null,
         email: me?.email || null,
       });
@@ -397,30 +427,30 @@ const Profile = () => {
   return (
     <div className="min-h-screen max-h-screen overflow-y-auto pb-24 relative">
       <WinterBackground />
-      <div className="container max-w-4xl mx-auto p-6 space-y-6 relative z-10">
+      <div className="container max-w-4xl mx-auto px-4 sm:p-6 space-y-6 relative z-10">
         {/* Header */}
         <div className="animate-fade-in">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg">
-              <UserIcon className="h-6 w-6 text-white" />
+          <div className="flex items-center gap-2 sm:gap-3 mb-2">
+            <div className="p-2 sm:p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg">
+              <UserIcon className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
             </div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
+            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
               {t("profile.title")}
             </h1>
           </div>
-          <p className="text-slate-600 dark:text-slate-400 ml-16">{t("profile.subtitle")}</p>
+          <p className="text-slate-600 dark:text-slate-400 ml-12 sm:ml-16 text-sm sm:text-base">{t("profile.subtitle")}</p>
         </div>
 
         {/* Profile Card */}
-        <Card className="animate-fade-in border-0 overflow-hidden bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 shadow-2xl" style={{ animationDelay: "100ms" }}>
+        <Card className="animate-fade-in border border-slate-200/60 dark:border-slate-700/60 overflow-hidden bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-xl" style={{ animationDelay: "100ms" }}>
           <div className="relative h-32 bg-gradient-to-r from-primary via-primary/80 to-accent">
             <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48cGF0aCBkPSJNMzYgMzRjMC0yLjIxLTEuNzktNC00LTRzLTQgMS43OS00IDQgMS43OSA0IDQgNCA0LTEuNzkgNC00em0wLTEyYzAtMi4yMS0xLjc5LTQtNC00cy00IDEuNzktNCA0IDEuNzkgNCA0IDQgNC0xLjc5IDQtNHptMTIgMTJjMC0yLjIxLTEuNzktNC00LTRzLTQgMS43OS00IDQgMS43OSA0IDQgNCA0LTEuNzkgNC00eiIvPjwvZz48L2c+PC9zdmc+')] opacity-20"></div>
           </div>
           
           <CardContent className="pt-0 pb-8">
-            <div className="flex flex-col items-center -mt-16 mb-6">
+            <div className="flex flex-col items-center -mt-16 sm:-mt-20 mb-6">
               <div className="relative group">
-                <Avatar className="h-32 w-32 border-4 border-white dark:border-slate-900 shadow-2xl ring-4 ring-slate-100 dark:ring-slate-800 transition-transform duration-300 group-hover:scale-105">
+                <Avatar className="h-24 sm:h-32 w-24 sm:w-32 border-2 border-white dark:border-slate-900 shadow-lg ring-2 ring-slate-100 dark:ring-slate-800 transition-transform duration-300 group-hover:scale-105">
                   <AvatarImage src={profile.avatar_url || ""} />
                   <AvatarFallback className="text-4xl font-bold bg-gradient-to-br from-primary to-primary/70 text-white">
                     {getInitials()}
@@ -463,29 +493,29 @@ const Profile = () => {
               </div>
 
               <div className="text-center mt-4 space-y-2">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+                <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
                   {profile.first_name} {profile.last_name}
                 </h2>
                 
-                <div className="flex items-center justify-center gap-2 flex-wrap">
-                  {userRole && (
-                    <Badge className="bg-gradient-to-r from-primary to-primary/80 text-white shadow-md">
-                      <Shield className="h-3 w-3 mr-1" />
-                      {t(`profile.role.${userRole}`, userRole)}
-                    </Badge>
-                  )}
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-wrap">
                   {profile.position && (
-                    <Badge variant="secondary" className="shadow-sm">
+                    <Badge className="bg-gradient-to-r from-primary to-primary/80 text-white shadow-md text-xs sm:text-sm">
                       <Briefcase className="h-3 w-3 mr-1" />
                       {profile.position}
+                    </Badge>
+                  )}
+                  {userRole && (
+                    <Badge variant="secondary" className="shadow-sm text-xs sm:text-sm">
+                      <Shield className="h-3 w-3 mr-1" />
+                      {t(`profile.role.${userRole}`, userRole)}
                     </Badge>
                   )}
                 </div>
 
                 {profile.email && (
-                  <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                    <Mail className="h-4 w-4" />
-                    {profile.email}
+                  <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-slate-600 dark:text-slate-400 flex-wrap px-2">
+                    <Mail className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    <span className="break-all">{profile.email}</span>
                   </div>
                 )}
               </div>

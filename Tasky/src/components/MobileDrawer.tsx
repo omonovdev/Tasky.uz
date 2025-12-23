@@ -21,15 +21,7 @@ const MobileDrawer = () => {
 
   return (
     <>
-      {/* Hamburger Icon */}
-      <button
-        className="absolute top-4 left-4 z-50 p-2 rounded-full bg-card shadow-lg md:hidden"
-        onClick={() => setOpen(true)}
-        aria-label="Open menu"
-        style={{ marginTop: 4 }}
-      >
-        <Menu className="w-7 h-7 text-primary" />
-      </button>
+
 
       {/* Drawer */}
       {open && (
