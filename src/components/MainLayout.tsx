@@ -94,6 +94,8 @@ const MainLayout = ({ children }: MainLayoutProps) => {
         me.lastName &&
         me.dateOfBirth;
 
+
+        
       if (!hasRequiredProfile) {
         setProfileIncomplete(true);
         setProfile({
