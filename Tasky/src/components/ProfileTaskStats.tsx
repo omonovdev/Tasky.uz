@@ -85,7 +85,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border-blue-500/20">
+        <Card className="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/30 shadow-sm hover:shadow-md transition-all duration-200 hover:border-blue-500/50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t("profileStats.totalReceived")}</CardTitle>
             <ListTodo className="h-5 w-5 text-blue-500" />
@@ -95,7 +95,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20">
+        <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5 border border-green-500/30 shadow-sm hover:shadow-md transition-all duration-200 hover:border-green-500/50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t("profileStats.completed")}</CardTitle>
             <CheckCircle2 className="h-5 w-5 text-green-500" />
@@ -105,7 +105,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-amber-500/10 to-amber-600/5 border-amber-500/20">
+        <Card className="bg-gradient-to-br from-amber-500/10 to-amber-600/5 border border-amber-500/30 shadow-sm hover:shadow-md transition-all duration-200 hover:border-amber-500/50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t("profileStats.inProgress")}</CardTitle>
             <Clock className="h-5 w-5 text-amber-500" />
@@ -115,7 +115,7 @@ export default function ProfileTaskStats({ userId }: ProfileTaskStatsProps) {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-purple-500/10 to-purple-600/5 border-purple-500/20">
+        <Card className="bg-gradient-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/30 shadow-sm hover:shadow-md transition-all duration-200 hover:border-purple-500/50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t("profileStats.hoursSpent")}</CardTitle>
             <Timer className="h-5 w-5 text-purple-500" />

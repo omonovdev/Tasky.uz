@@ -16,6 +16,7 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar";
 import MobileDrawer from "@/components/MobileDrawer";
+import BottomNav from "@/components/BottomNav";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   LayoutDashboard,
@@ -209,54 +210,50 @@ const MainLayout = ({ children }: MainLayoutProps) => {
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full flex-col">
-        {/* Mobil Hamburger Drawer */}
-        <div className="md:hidden">
-          <MobileDrawer />
-        </div>
         {/* Top Bar with Organization Switcher */}
-        <div className="h-16 border-b bg-card flex items-center px-6 shadow-sm pt-6">
+        <div className="h-16 border-b bg-card/95 backdrop-blur-sm flex items-center justify-between px-4 sm:px-6 shadow-sm">
           {/* Mobil Hamburger + Logo */}
-          <div className="flex items-center gap-4 w-full">
-            <div className="md:hidden flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+            <div className="md:hidden flex items-center flex-shrink-0">
               <MobileDrawer />
             </div>
-            <h2 className="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent ml-2">
+            <h2 className="hidden sm:block text-lg sm:text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent truncate">
               {t("app.name")}
             </h2>
           </div>
           
           {selectedOrganization?.organizations && (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-2 px-4 py-2 rounded-2xl hover:bg-muted transition-all duration-200 hover-lift shadow-sm">
-                <Avatar className="h-8 w-8 ring-2 ring-primary/20">
+              <DropdownMenuTrigger className="flex items-center gap-2 px-2 sm:px-3 py-2 rounded-lg hover:bg-muted transition-all duration-200 shadow-sm flex-shrink-0">
+                <Avatar className="h-8 w-8 ring-2 ring-primary/20 flex-shrink-0">
                   <AvatarImage src={selectedOrganization.organizations.photo_url || ""} />
                   <AvatarFallback className="text-xs bg-gradient-to-br from-primary to-secondary text-white">
                     {selectedOrganization.organizations.name.substring(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                <div className="flex flex-col items-start">
-                  <span className="text-sm font-medium">{selectedOrganization.organizations.name}</span>
-                  <span className="text-xs text-muted-foreground">{selectedOrganization.position || "Member"}</span>
+                <div className="hidden sm:flex flex-col items-start min-w-0 max-w-xs">
+                  <span className="text-sm font-medium truncate w-full">{selectedOrganization.organizations.name}</span>
+                  <span className="text-xs text-muted-foreground truncate w-full">{selectedOrganization.position || "Member"}</span>
                 </div>
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64 bg-popover rounded-2xl shadow-xl border-2 animate-scale-in">
+              <DropdownMenuContent align="end" className="w-72 bg-popover rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700">
                 {organizations.map((membership) => (
                   membership.organizations && (
                     <DropdownMenuItem
                       key={membership.organization_id}
-                      className="flex items-center gap-3 p-3 cursor-pointer rounded-xl hover:bg-muted transition-all duration-200"
+                      className="flex items-center gap-3 p-3 cursor-pointer rounded-lg hover:bg-muted transition-all duration-200"
                       onClick={() => handleOrganizationSwitch(membership.organization_id)}
                     >
-                      <Avatar className="h-10 w-10 ring-2 ring-primary/20">
+                      <Avatar className="h-10 w-10 ring-2 ring-primary/20 flex-shrink-0">
                         <AvatarImage src={membership.organizations.photo_url || ""} />
                         <AvatarFallback className="text-xs bg-gradient-to-br from-primary to-secondary text-white">
                           {membership.organizations.name.substring(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium">{membership.organizations.name}</span>
-                        <span className="text-xs text-muted-foreground">{membership.position || "Member"}</span>
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-sm font-medium truncate">{membership.organizations.name}</span>
+                        <span className="text-xs text-muted-foreground truncate">{membership.position || "Member"}</span>
                       </div>
                     </DropdownMenuItem>
                   )
@@ -267,7 +264,9 @@ const MainLayout = ({ children }: MainLayoutProps) => {
         </div>
 
         <div className="flex flex-1">
-          <Sidebar collapsible="icon" className="border-r-2">
+          {/* Only render Sidebar on md+ screens */}
+          <div className="hidden md:flex">
+            <Sidebar collapsible="icon" className="border-r-2">
             <SidebarHeader className="p-4 border-b mt-4">
               <div 
                 className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 rounded-xl p-2 transition-all duration-200" 
@@ -362,14 +361,19 @@ const MainLayout = ({ children }: MainLayoutProps) => {
                 </SidebarGroupContent>
               </SidebarGroup>
             </SidebarContent>
-          </Sidebar>
+            </Sidebar>
+          </div>
 
-          <main className="flex-1 overflow-auto bg-background">
+          {/* Main content area, always rendered, with solid bg for mobile */}
+          <main className="flex-1 overflow-auto bg-background pb-20 md:pb-0 md:rounded-none md:shadow-none" style={{ background: 'rgba(255,255,255,1)' }}>
             <div className="animate-fade-in">
               {children}
             </div>
           </main>
         </div>
+        
+        {/* Mobile Bottom Navigation */}
+        <BottomNav />
       </div>
     </SidebarProvider>
   );

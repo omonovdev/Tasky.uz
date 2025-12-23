@@ -35,7 +35,8 @@ import {
   TrendingUp,
   Plus,
   X,
-  Loader2
+  Loader2,
+  Building2
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -140,10 +141,8 @@ const Team = () => {
           } catch (socketError) {
             console.error("WebSocket initialization failed:", socketError);
           }
-        } else {
-          setError("No organization selected. Please select or create an organization first.");
-          setTimeout(() => navigate("/dashboard"), 3000);
         }
+        // No error message when no organization - just show empty state with 0s
       } catch (error: any) {
         console.error("Team page error:", error);
         setError(error.message || "Failed to load team data");
@@ -413,9 +412,20 @@ const Team = () => {
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-        <Card className="max-w-md">
-          <CardContent className="pt-6">
-            <p className="text-destructive text-center">{error}</p>
+        <Card className="max-w-md shadow-2xl border-2 border-red-200">
+          <CardContent className="pt-8">
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="p-3 rounded-full bg-red-100">
+                <Building2 className="h-8 w-8 text-red-600" />
+              </div>
+              <p className="text-destructive text-lg font-semibold">{error}</p>
+              <Button 
+                onClick={() => navigate("/dashboard")}
+                className="w-full mt-4"
+              >
+                Go to Dashboard
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

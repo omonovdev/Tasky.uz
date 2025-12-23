@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { authJwt } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
+import { format, enUS } from "date-fns";
+import { ru, uz } from "date-fns/locale";
 import { MoreVertical, Edit, Trash2, FileText, CheckCircle2, XCircle, Clock, TrendingUp, Calendar, User, Sparkles, ArrowRight, Flame, Award, Target } from "lucide-react";
 import FireProgress from "./FireProgress";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
@@ -216,8 +217,17 @@ export default function TasksList({
     deleteMutation.mutate(taskId);
   };
 
+  const getLocale = () => {
+    switch(i18n.language) {
+      case 'ru': return ru;
+      case 'uz': return uz;
+      default: return enUS;
+    }
+  };
+
   const groupedTasks: GroupedTasks = tasks.reduce((acc, task) => {
-    const monthYear = new Intl.DateTimeFormat(i18n.language, { month: 'long', year: 'numeric' }).format(new Date(task.deadline));
+    const dateObj = new Date(task.deadline);
+    const monthYear = format(dateObj, 'MMMM yyyy', { locale: getLocale() });
     if (!acc[monthYear]) {
       acc[monthYear] = [];
     }
@@ -406,14 +416,14 @@ export default function TasksList({
           <div className="space-y-8">
             {filteredTasks.filter(t => t.status === 'in_progress' || t.status === 'pending').length > 0 && (
               <div className="space-y-4">
-                <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-lg py-3 z-20 border-b-2">
-                  <div className="p-2 bg-primary/10 rounded-lg">
+                <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-lg py-3 z-20 px-2 sm:px-4">
+                  <div className="p-2 bg-primary/10 rounded-lg flex-shrink-0">
                     <TrendingUp className="h-5 w-5 text-primary" />
                   </div>
-                  <h3 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/50 bg-clip-text text-transparent">
+                  <h3 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-primary to-primary/50 bg-clip-text text-transparent truncate flex-1">
                     {t("tasksPageSection.activeTasks")}
                   </h3>
-                  <Badge variant="secondary" className="ml-auto">
+                  <Badge variant="secondary" className="flex-shrink-0">
                     {t("tasksPageSection.countTasks", { count: filteredTasks.filter(t => t.status === 'in_progress' || t.status === 'pending').length })}
                   </Badge>
                 </div>
@@ -658,14 +668,14 @@ export default function TasksList({
 
             {filteredTasks.filter(t => t.status === "completed").length > 0 && (
               <div className="space-y-4">
-                <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-lg py-3 z-20 border-b-2">
-                  <div className="p-2 bg-success/10 rounded-lg">
+                <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-lg py-3 z-20 px-2 sm:px-4">
+                  <div className="p-2 bg-success/10 rounded-lg flex-shrink-0">
                     <Award className="h-5 w-5 text-success" />
                   </div>
-                  <h3 className="text-2xl font-bold bg-gradient-to-r from-success to-success/50 bg-clip-text text-transparent">
+                  <h3 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-success to-success/50 bg-clip-text text-transparent truncate flex-1">
                     {t("tasksPageSection.completedHeader")}
                   </h3>
-                  <Badge variant="secondary" className="ml-auto bg-success/10 text-success border-success/20">
+                  <Badge variant="secondary" className="flex-shrink-0 bg-success/10 text-success border-success/20">
                     {t("tasksPageSection.completedCount", { count: filteredTasks.filter(t => t.status === "completed").length })}
                   </Badge>
                 </div>
