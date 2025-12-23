@@ -329,7 +329,7 @@ const Dashboard = () => {
       {/* {t("dashboard.quickActions")} and Recent Activity Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {/* {t("dashboard.quickActions")} */}
-        <Card className="group relative overflow-hidden hover:shadow-2xl transition-all duration-300 border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 hover:ring-primary/30 animate-in fade-in slide-in-from-left-4 duration-700">
+        <Card className="group relative overflow-hidden hover:shadow-2xl transition-all duration-300 border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 hover:ring-primary/30 animate-in fade-in slide-in-from-left-4 duration-700 rounded-2xl">
           <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl"></div>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -363,7 +363,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Recent Activity */}
-        <Card className="md:col-span-2 group relative overflow-hidden hover:shadow-2xl transition-all duration-300 border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 hover:ring-accent/30 animate-in fade-in slide-in-from-right-4 duration-700">
+        <Card className="md:col-span-2 group relative overflow-hidden hover:shadow-2xl transition-all duration-300 border-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 hover:ring-accent/30 animate-in fade-in slide-in-from-right-4 duration-700 rounded-3xl">
           <div className="absolute bottom-0 left-0 w-32 h-32 bg-accent/5 rounded-full blur-2xl"></div>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">

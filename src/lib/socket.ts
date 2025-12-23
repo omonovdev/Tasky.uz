@@ -1,3 +1,12 @@
+export const onNotification = (callback: (notification: any) => void) => {
+  const sock = getSocket();
+  if (sock) sock.on('notification', callback);
+};
+
+export const offNotification = (callback?: (notification: any) => void) => {
+  const sock = getSocket();
+  if (sock) sock.off('notification', callback);
+};
 import { io, type Socket } from 'socket.io-client';
 import { authStorage } from './auth';
 

@@ -57,16 +57,14 @@ export default function OrganizationDetail() {
   const [isCreator, setIsCreator] = useState(false);
   const [showMembersDialog, setShowMembersDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [userRole, setUserRole] = useState<string>("");
+  const [userOrgRole, setUserOrgRole] = useState<string>("");
   const [taskFilter, setTaskFilter] = useState<"all" | "pending" | "completed">("pending");
   const [loading, setLoading] = useState(true);
-  
   // ✨ NEW: Photo management states
   const [showPhotoDialog, setShowPhotoDialog] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  
   // Task Statistics State
   const [stats, setStats] = useState({
     total: 0,
@@ -78,7 +76,7 @@ export default function OrganizationDetail() {
   useEffect(() => {
     const initialize = async () => {
       await fetchOrganization();
-      await fetchUserRole();
+      await fetchUserOrgRole();
       await fetchTaskStats();
     };
     initialize();
@@ -126,12 +124,13 @@ export default function OrganizationDetail() {
     }
   };
 
-  const fetchUserRole = async () => {
+  const fetchUserOrgRole = async () => {
     try {
-      const data = await api.users.getMyRole();
-      if (data?.role) setUserRole(data.role);
+      if (!id) return;
+      const role = await api.organizations.getMyRoleForOrg(id);
+      if (role) setUserOrgRole(role);
     } catch (error: any) {
-      console.error("Error fetching role:", error);
+      console.error("Error fetching org role:", error);
     }
   };
 
@@ -361,7 +360,7 @@ export default function OrganizationDetail() {
                         {organization.name[0]}
                       </span>
                     </div>
-                    {isCreator && userRole === "employer" && (
+                    {isCreator && userOrgRole === "CEO" && (
                       <>
                         <label
                           htmlFor="org-photo-upload"
@@ -414,7 +413,7 @@ export default function OrganizationDetail() {
                       <Users className="w-4 h-4 mr-2 group-hover:animate-pulse" />
                       {t("organizationPage.membersButton")}
                     </Button>
-                    {isCreator && userRole === "employer" && (
+                    {isCreator && userOrgRole === "employer" && (
                       <>
                         <AgreementDialog 
                           organizationId={id!}
@@ -583,7 +582,7 @@ export default function OrganizationDetail() {
             <MemberManagement 
               organizationId={id!} 
               creatorId={organization.created_by}
-              isCreator={isCreator && userRole === "employer"}
+              isCreator={isCreator && userOrgRole === "employer"}
             />
           </DialogContent>
         </Dialog>

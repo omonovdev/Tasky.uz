@@ -178,8 +178,7 @@
     },
     "editMessage": "Xabarni tahrirlash",
       "editIdea": "G'oyani tahrirlash",
-      "loading": "Jamoa yuklanmoqda...",
-      "noOrganization": "Tashkilot tanlanmagan. Iltimos, avval tashkilot tanlang yoki yarating."
+      "loading": "Jamoa yuklanmoqda..."
     },
   "team": {
     "leaderboard": "Jamoa reytingi",

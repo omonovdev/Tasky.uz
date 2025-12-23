@@ -28,6 +28,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -385,6 +386,8 @@ const Profile = () => {
     }
   };
 
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const handleDeleteAccount = async () => {
     try {
       toast({
@@ -452,7 +455,7 @@ const Profile = () => {
               <div className="relative group">
                 <Avatar className="h-24 sm:h-32 w-24 sm:w-32 border-2 border-white dark:border-slate-900 shadow-lg ring-2 ring-slate-100 dark:ring-slate-800 transition-transform duration-300 group-hover:scale-105">
                   <AvatarImage src={profile.avatar_url || ""} />
-                  <AvatarFallback className="text-4xl font-bold bg-gradient-to-br from-primary to-primary/70 text-white">
+                  <AvatarFallback className="text-4xl font-extrabold text-slate-900 dark:text-white bg-gradient-to-br from-primary to-primary/70">
                     {getInitials()}
                   </AvatarFallback>
                 </Avatar>
@@ -460,13 +463,13 @@ const Profile = () => {
                 <label 
                   htmlFor="avatar-upload" 
                   className={cn(
-                    "absolute bottom-2 right-2 p-2.5 rounded-full cursor-pointer transition-all duration-300",
+                    "absolute bottom-2 right-2 p-1.5 rounded-full cursor-pointer transition-all duration-300",
                     "bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700",
                     "hover:bg-primary hover:border-primary hover:scale-110 shadow-lg",
                     "group/btn"
                   )}
                 >
-                  <Camera className="h-4 w-4 text-slate-600 dark:text-slate-400 group-hover/btn:text-white transition-colors" />
+                  <Camera className="h-3 w-3 text-slate-600 dark:text-slate-400 group-hover/btn:text-white transition-colors" />
                   <input
                     id="avatar-upload"
                     type="file"
@@ -539,7 +542,7 @@ const Profile = () => {
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-4">
                   <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 transition-all duration-200 hover:shadow-md">
                     <div className="flex items-center gap-3 mb-2">
                       <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
@@ -966,7 +969,7 @@ const Profile = () => {
               {t("profile.signOut")}
             </Button>
 
-            <AlertDialog>
+            <AlertDialog open={deleteDialogOpen} onOpenChange={(open) => { setDeleteDialogOpen(open); setDeleteConfirm(""); }}>
               <AlertDialogTrigger asChild>
                 <Button 
                   variant="destructive" 
@@ -981,6 +984,17 @@ const Profile = () => {
                   <AlertDialogTitle>{t("profile.deleteAccountTitle")}</AlertDialogTitle>
                   <AlertDialogDescription>
                     {t("profile.deleteAccountConfirm")}
+                    <div className="mt-4">
+                      <Label htmlFor="delete-confirm" className="mb-1 block">Type <b>DELETE</b> to confirm:</Label>
+                      <Input
+                        id="delete-confirm"
+                        value={deleteConfirm}
+                        onChange={e => setDeleteConfirm(e.target.value)}
+                        autoComplete="off"
+                        placeholder="DELETE"
+                        className="mt-1"
+                      />
+                    </div>
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -988,6 +1002,7 @@ const Profile = () => {
                   <AlertDialogAction
                     onClick={handleDeleteAccount}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={deleteConfirm !== "DELETE"}
                   >
                     {t("profile.deleteAccount")}
                   </AlertDialogAction>

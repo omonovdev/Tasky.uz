@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { NotificationsGateway } from './notifications.gateway';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotificationRead } from '../entities';
@@ -9,7 +10,13 @@ export class NotificationsService {
   constructor(
     @InjectRepository(NotificationRead)
     private readonly reads: Repository<NotificationRead>,
-  ) {}
+    private readonly notificationsGateway: NotificationsGateway,
+  ) { }
+
+  // Yangi notificationni userga real-time yuborish uchun yordamchi metod
+  emitToUser(userId: string, notification: any) {
+    this.notificationsGateway.emitToUser(userId, notification);
+  }
 
   async listForUser(userId: string) {
     return this.reads.find({ where: { userId }, order: { readAt: 'DESC' } });

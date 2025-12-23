@@ -1,3 +1,4 @@
+
 import {
   Body,
   Controller,
@@ -21,7 +22,7 @@ import { UpdateMemberPositionDto } from './dto/update-member-position.dto';
 @Controller('organizations')
 @UseGuards(JwtAuthGuard)
 export class OrganizationsController {
-  constructor(private readonly orgs: OrganizationsService) {}
+  constructor(private readonly orgs: OrganizationsService) { }
 
   @Post()
   create(@CurrentUser() user: any, @Body() dto: CreateOrganizationDto) {
@@ -56,7 +57,10 @@ export class OrganizationsController {
   ) {
     return this.orgs.updateMemberPosition(memberId, user.userId, dto);
   }
-
+  @Get(':id/my-role')
+  getMyRoleForOrg(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.orgs.getMyRoleForOrganization(id, user.userId);
+  }
   @Delete('members/:memberId')
   removeMember(@Param('memberId') memberId: string, @CurrentUser() user: any) {
     return this.orgs.removeMember(memberId, user.userId);

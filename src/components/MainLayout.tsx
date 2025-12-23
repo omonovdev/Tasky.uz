@@ -15,6 +15,8 @@ import {
   SidebarProvider,
   SidebarHeader,
 } from "@/components/ui/sidebar";
+import MobileDrawer from "@/components/MobileDrawer";
+import BottomNav from "@/components/BottomNav";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   LayoutDashboard,
@@ -33,7 +35,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import BottomNav from "@/components/BottomNav";
 import { useNotificationContext } from "@/components/NotificationContext";
 
 interface ProfileData {
@@ -94,8 +95,6 @@ const MainLayout = ({ children }: MainLayoutProps) => {
         me.lastName &&
         me.dateOfBirth;
 
-
-        
       if (!hasRequiredProfile) {
         setProfileIncomplete(true);
         setProfile({
@@ -213,7 +212,11 @@ const MainLayout = ({ children }: MainLayoutProps) => {
       <div className="min-h-screen flex w-full flex-col">
         {/* Top Bar with Organization Switcher */}
         <div className="h-16 border-b bg-card/95 backdrop-blur-sm flex items-center justify-between px-4 sm:px-6 shadow-sm">
+          {/* Mobil Hamburger + Logo */}
           <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+            <div className="md:hidden flex items-center flex-shrink-0">
+              <MobileDrawer />
+            </div>
             <h2 className="hidden sm:block text-lg sm:text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent truncate">
               {t("app.name")}
             </h2>
@@ -261,7 +264,9 @@ const MainLayout = ({ children }: MainLayoutProps) => {
         </div>
 
         <div className="flex flex-1">
-          <Sidebar collapsible="icon" className="border-r-2 hidden md:flex">
+          {/* Only render Sidebar on md+ screens */}
+          <div className="hidden md:flex">
+            <Sidebar collapsible="icon" className="border-r-2">
             <SidebarHeader className="p-4 border-b mt-4">
               <div 
                 className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 rounded-xl p-2 transition-all duration-200" 
@@ -308,18 +313,15 @@ const MainLayout = ({ children }: MainLayoutProps) => {
                           <SidebarMenuButton 
                             asChild 
                             isActive={isActive}
-                            className={isActive ? "bg-sidebar-accent border-l-4 border-primary shadow-md" : "hover:bg-sidebar-accent/50 transition-all duration-200"}
+                            className={isActive ? "bg-red-500 text-white border-l-4 border-red-700 shadow-md rounded-full" : "hover:bg-red-100 transition-all duration-200"}
                           >
                             <NavLink to={item.path} className="flex items-center gap-3">
                               <div className="relative">
                                 <Icon className={`h-4 w-4 ${isActive ? "text-primary" : ""}`} />
                                 {showBadge && (
-                                  <Badge 
-                                    variant="destructive" 
-                                    className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center text-[10px] animate-pulse-glow"
-                                  >
+                                  <span className="notification-badge active absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center text-[12px] font-bold bg-red-500 text-white rounded-full shadow-lg animate-pulse-glow border-2 border-white">
                                     {unreadCount}
-                                  </Badge>
+                                  </span>
                                 )}
                               </div>
                               <span className={isActive ? "font-semibold text-primary" : ""}>{item.title}</span>
@@ -359,9 +361,11 @@ const MainLayout = ({ children }: MainLayoutProps) => {
                 </SidebarGroupContent>
               </SidebarGroup>
             </SidebarContent>
-          </Sidebar>
+            </Sidebar>
+          </div>
 
-          <main className="flex-1 overflow-auto bg-background pb-20 md:pb-0">
+          {/* Main content area, always rendered, with solid bg for mobile */}
+          <main className="flex-1 overflow-auto bg-background pb-20 md:pb-0 md:rounded-none md:shadow-none" style={{ background: 'rgba(255,255,255,1)' }}>
             <div className="animate-fade-in">
               {children}
             </div>

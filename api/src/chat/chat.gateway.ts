@@ -21,13 +21,12 @@ interface SocketWithAuth extends Socket {
 
 @WebSocketGateway({ cors: true })
 export class ChatGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly chat: ChatService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
-  ) {}
+  ) { }
 
   server!: Server;
 
@@ -100,7 +99,8 @@ export class ChatGateway
     try {
       const msg = await this.chat.createMessage(client.userId, payload);
       const room = `org:${msg.organizationId}`;
-      this.server.to(room).emit('message', msg);
+      this.server.to(room).emit('message', msg); // barcha userlarga
+      client.emit('message', msg); // o‘zi yuborganga ham
     } catch (error) {
       throw new WsException('Failed to send message');
     }

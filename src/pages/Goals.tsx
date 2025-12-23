@@ -411,15 +411,15 @@ const Goals = () => {
       <div className="container max-w-6xl mx-auto p-6 space-y-6 relative z-10">
         {/* Header */}
         <div className="animate-fade-in">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg">
+          <div className="flex flex-col items-center gap-2 mb-4 text-center sm:flex-row sm:items-center sm:gap-3 sm:text-left">
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg mx-auto sm:mx-0">
               <Target className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
+              <h1 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
                 {t("goalsPage.title")}
               </h1>
-              <p className="text-slate-600 dark:text-slate-400">
+              <p className="text-slate-600 dark:text-slate-400 text-base sm:text-lg">
                 {t("goalsPage.subtitle")}
               </p>
             </div>
@@ -427,7 +427,7 @@ const Goals = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fade-in" style={{ animationDelay: "100ms" }}>
+        <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 gap-4 animate-fade-in" style={{ animationDelay: "100ms" }}>
           {[
             { type: "weekly", count: weeklyGoals.length, icon: Zap, color: "from-blue-500 to-cyan-600" },
           { type: "monthly", count: monthlyGoals.length, icon: TrendingUp, color: "from-purple-500 to-pink-600" },
@@ -464,7 +464,7 @@ const Goals = () => {
 
         {/* Tabs */}
         <Tabs defaultValue="weekly" className="w-full animate-fade-in" style={{ animationDelay: "200ms" }}>
-          <TabsList className="grid w-full grid-cols-3 p-1.5 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md ring-1 ring-white/20 rounded-2xl h-auto">
+          <TabsList className="grid w-full grid-cols-3 p-1.5 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md ring-1 ring-white/20 rounded-2xl h-auto text-sm sm:text-base">
             <TabsTrigger 
               value="weekly" 
               className="rounded-xl data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all duration-200 py-3"

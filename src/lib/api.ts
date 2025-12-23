@@ -1,3 +1,53 @@
+// --- API FETCH FUNCTION (MUST BE DEFINED FOR ALL API CALLS) ---
+const apiFetch = async <T>(
+  path: string,
+  init: RequestInit & { skipAuth?: boolean } = {},
+): Promise<T> => {
+  const url = joinUrl(API_BASE_URL, path);
+  const headers = new Headers(init.headers);
+  const skipAuth = Boolean(init.skipAuth);
+
+  // Tokenni headerga qo‘shish
+  if (!skipAuth) {
+    const accessToken = authStorage.getAccessToken();
+    if (accessToken) headers.set('authorization', `Bearer ${accessToken}`);
+  }
+
+  const body = init.body;
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+  if (!isFormData && body && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json');
+  }
+
+  let res = await fetch(url, { ...init, headers });
+  // Agar 401 va token muddati tugagan bo‘lsa, refresh qilib qayta so‘rov yuborish
+  if (res.status === 401 && !skipAuth) {
+    try {
+      const refreshToken = authStorage.getRefreshToken();
+      if (refreshToken) {
+        const refreshRes = await fetch(joinUrl(API_BASE_URL, '/auth/refresh'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (refreshRes.ok) {
+          const data = await refreshRes.json();
+          authStorage.setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
+          headers.set('authorization', `Bearer ${data.accessToken}`);
+          res = await fetch(url, { ...init, headers });
+        } else {
+          authStorage.clear();
+          throw new Error('Session expired. Please login again.');
+        }
+      }
+    } catch (err) {
+      authStorage.clear();
+      throw new Error('Session expired. Please login again.');
+    }
+  }
+  if (!res.ok) throw new Error(await res.text());
+  return isJsonResponse(res) ? await res.json() : ((await res.text()) as any);
+};
 import { authStorage, type AuthTokens } from './auth';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:4010/api';
@@ -12,86 +62,6 @@ const isJsonResponse = (res: Response) => {
   return contentType.includes('application/json');
 };
 
-const parseApiError = async (res: Response): Promise<string> => {
-  try {
-    if (isJsonResponse(res)) {
-      const body = (await res.json()) as ApiErrorBody;
-      if (Array.isArray(body.message)) return body.message.join(', ');
-      if (typeof body.message === 'string') return body.message;
-      if (typeof body.error === 'string') return body.error;
-    }
-    const text = await res.text();
-    return text || `Request failed (${res.status})`;
-  } catch {
-    return `Request failed (${res.status})`;
-  }
-};
-
-let refreshInFlight: Promise<AuthTokens> | null = null;
-
-const refreshTokens = async (): Promise<AuthTokens> => {
-  const refreshToken = authStorage.getRefreshToken();
-  if (!refreshToken) throw new Error('No refresh token');
-
-  if (!refreshInFlight) {
-    refreshInFlight = (async () => {
-      const res = await fetch(joinUrl(API_BASE_URL, '/auth/refresh'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (!res.ok) {
-        authStorage.clear();
-        throw new Error(await parseApiError(res));
-      }
-      const data = (await res.json()) as { accessToken: string; refreshToken: string };
-      const tokens: AuthTokens = { accessToken: data.accessToken, refreshToken: data.refreshToken };
-      authStorage.setTokens(tokens);
-      return tokens;
-    })().finally(() => {
-      refreshInFlight = null;
-    });
-  }
-
-  return refreshInFlight;
-};
-
-export const apiFetch = async <T>(
-  path: string,
-  init: RequestInit & { skipAuth?: boolean } = {},
-): Promise<T> => {
-  const url = joinUrl(API_BASE_URL, path);
-  const headers = new Headers(init.headers);
-  const skipAuth = Boolean(init.skipAuth);
-
-  if (!skipAuth) {
-    const accessToken = authStorage.getAccessToken();
-    if (accessToken) headers.set('authorization', `Bearer ${accessToken}`);
-  }
-
-  const body = init.body;
-  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
-  if (!isFormData && body && !headers.has('content-type')) {
-    headers.set('content-type', 'application/json');
-  }
-
-  const res = await fetch(url, { ...init, headers });
-  if (res.status === 401 && !skipAuth && authStorage.getRefreshToken()) {
-    await refreshTokens();
-    const retryHeaders = new Headers(init.headers);
-    const accessToken = authStorage.getAccessToken();
-    if (accessToken) retryHeaders.set('authorization', `Bearer ${accessToken}`);
-    if (!isFormData && body && !retryHeaders.has('content-type')) {
-      retryHeaders.set('content-type', 'application/json');
-    }
-    const retryRes = await fetch(url, { ...init, headers: retryHeaders });
-    if (!retryRes.ok) throw new Error(await parseApiError(retryRes));
-    return (isJsonResponse(retryRes) ? await retryRes.json() : ((await retryRes.text()) as any)) as T;
-  }
-
-  if (!res.ok) throw new Error(await parseApiError(res));
-  return (isJsonResponse(res) ? await res.json() : ((await res.text()) as any)) as T;
-};
 
 export type ApiAuthResponse = {
   user: any;
@@ -215,19 +185,22 @@ export const api = {
       const qs = status ? `?status=${encodeURIComponent(status)}` : '';
       return apiFetch<any[]>(`/organizations/invitations/me${qs}`);
     },
+    getMyRoleForOrg(orgId: string) {
+      return apiFetch<string | null>(`/organizations/${orgId}/my-role`);
+    },
     invitations(orgId: string) {
       return apiFetch<any[]>(`/organizations/${orgId}/invitations`);
     },
-    search(query: string) {
-      const encoded = encodeURIComponent(query);
-      return apiFetch<any[]>(`/organizations/search?q=${encoded}`);
-    },
-    acceptAgreement(orgId: string, payload: { agreementVersion: number }) {
-      return apiFetch<{ success: true }>(`/organizations/${orgId}/agreement`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-    },
+  },
+  search(query: string) {
+    const encoded = encodeURIComponent(query);
+    return apiFetch<any[]>(`/organizations/search?q=${encoded}`);
+  },
+  acceptAgreement(orgId: string, payload: { agreementVersion: number }) {
+    return apiFetch<{ success: true }>(`/organizations/${orgId}/agreement`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
   tasks: {
     list(params: {

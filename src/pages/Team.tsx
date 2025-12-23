@@ -10,7 +10,8 @@ import {
   offMessage,
   onReaction,
   offReaction,
-  sendReaction as sendSocketReaction
+  sendReaction as sendSocketReaction,
+  getSocket
 } from "@/lib/socket";
 import WinterBackground from "@/components/WinterBackground";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,8 +36,7 @@ import {
   TrendingUp,
   Plus,
   X,
-  Loader2,
-  Building2
+  Loader2
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -133,14 +133,6 @@ const Team = () => {
           await fetchTeamData(orgId);
           await fetchChatMessages(orgId);
           await fetchIdeas(orgId);
-
-          // Initialize WebSocket
-          try {
-            initializeSocket();
-            joinOrganization(orgId);
-          } catch (socketError) {
-            console.error("WebSocket initialization failed:", socketError);
-          }
         }
         // No error message when no organization - just show empty state with 0s
       } catch (error: any) {
@@ -163,21 +155,54 @@ const Team = () => {
     };
   }, []);
 
+  // Socket init va org join har safar orgId o‘zgarganda
+  useEffect(() => {
+    if (!selectedOrgId) return;
+    try {
+      initializeSocket();
+      joinOrganization(selectedOrgId);
+    } catch (e) {
+      console.error("Socket init error:", e);
+    }
+  }, [selectedOrgId]);
+
   // WebSocket listeners
   useEffect(() => {
     if (!selectedOrgId) return;
 
     const handleNewMessage = (message: any) => {
-      console.log('📨 Received new message:', message);
-      if (selectedOrgId) {
-        fetchChatMessages(selectedOrgId);
-      }
+      // Mapping to ChatMessage format
+      const mapped = {
+        id: message.id,
+        organizationId: message.organizationId,
+        userId: message.userId,
+        message: message.message,
+        createdAt: message.createdAt,
+        editedAt: message.editedAt,
+        isDeleted: Boolean(message.isDeleted),
+        user: message.user
+          ? {
+              firstName: message.user.firstName,
+              lastName: message.user.lastName,
+              avatarUrl: message.user.avatarUrl,
+            }
+          : undefined,
+        reactions: (message.reactions || []).map((r: any) => ({
+          id: r.id,
+          userId: r.userId,
+          reaction: r.reaction,
+        })),
+      };
+      setChatMessages(prev => {
+        if (prev.some(m => m.id === mapped.id)) return prev;
+        return [...prev, mapped];
+      });
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
     const handleReactionUpdate = (message: any) => {
-      console.log('👍 Received reaction update:', message);
       if (selectedOrgId) {
-        fetchChatMessages(selectedOrgId);
+        fetchChatMessages(selectedOrgId); // Reaksiyalar uchun to‘liq yuklash
       }
     };
 
@@ -314,21 +339,25 @@ const Team = () => {
     const trimmed = newMessage.trim();
 
     try {
+      // SOCKET ULANGANINI TEKSHIRISH
+      const sock = getSocket();
+      console.log('[CHAT] Yuborishdan oldin socket:', sock);
       try {
         sendSocketMessage({
           organizationId: selectedOrgId,
           message: trimmed,
         });
+        console.log('[CHAT] Socket orqali xabar yuborildi:', trimmed);
         setNewMessage("");
       } catch (socketError) {
-        console.warn('WebSocket send failed, using REST API:', socketError);
+        console.warn('[CHAT] WebSocket orqali yuborilmadi, REST API orqali yuboriladi:', socketError);
         await api.chat.send({
           organizationId: selectedOrgId,
           message: trimmed,
         });
         toast({
           title: "Success",
-          description: "Message sent",
+          description: "Message sent (REST API)",
         });
         setNewMessage("");
         fetchChatMessages(selectedOrgId);
@@ -412,20 +441,9 @@ const Team = () => {
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-        <Card className="max-w-md shadow-2xl border-2 border-red-200">
-          <CardContent className="pt-8">
-            <div className="flex flex-col items-center text-center space-y-4">
-              <div className="p-3 rounded-full bg-red-100">
-                <Building2 className="h-8 w-8 text-red-600" />
-              </div>
-              <p className="text-destructive text-lg font-semibold">{error}</p>
-              <Button 
-                onClick={() => navigate("/dashboard")}
-                className="w-full mt-4"
-              >
-                Go to Dashboard
-              </Button>
-            </div>
+        <Card className="max-w-md">
+          <CardContent className="pt-6">
+            <p className="text-destructive text-center">{error}</p>
           </CardContent>
         </Card>
       </div>
@@ -433,33 +451,34 @@ const Team = () => {
   }
 
   return (
-    <div className="min-h-screen max-h-screen overflow-y-auto pb-20 relative">
+    <div className="min-h-screen max-h-screen overflow-y-auto pb-20 relative px-2 md:px-0 flex flex-col items-center">
       <WinterBackground />
-      <div className="container max-w-6xl mx-auto p-6 space-y-6 relative z-10">
-        <div className="flex items-center justify-between animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg">
+      <div className="w-full max-w-xl md:max-w-6xl mx-auto p-4 md:p-6 space-y-6 relative z-10">
+        {/* Responsive header for mobile */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 animate-fade-in text-center sm:text-left">
+          <div className="flex flex-col items-center sm:items-start gap-2 w-full">
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg mx-auto sm:mx-0">
               <Users className="h-6 w-6 text-white" />
             </div>
-            <div className="flex flex-col">
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
-                {t("teamPage.title", { defaultValue: "Team" })}
-              </h1>
-              <p className="text-slate-600 dark:text-slate-400">
-                {t("teamPage.subtitle", {
-                  defaultValue: "Collaboration, leaderboard, and team communication",
-                })}
-              </p>
-            </div>
+            <h1 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
+              {t("teamPage.title", { defaultValue: "Team" })}
+            </h1>
+            <p className="text-slate-600 dark:text-slate-400 text-base sm:text-lg">
+              {t("teamPage.subtitle", {
+                defaultValue: "Collaboration, leaderboard, and team communication",
+              })}
+            </p>
           </div>
-          <Badge variant="outline" className="text-base px-4 py-2 bg-white dark:bg-slate-800 shadow-sm">
-            <Users className="h-4 w-4 mr-2" />
-            {teamMembers.length} {t("teamPage.members", { defaultValue: "Members" })}
-          </Badge>
+          <div className="flex justify-center sm:justify-end w-full sm:w-auto">
+            <Badge variant="outline" className="text-base px-4 py-2 bg-white dark:bg-slate-800 shadow-sm">
+              <Users className="h-4 w-4 mr-2" />
+              {teamMembers.length} {t("teamPage.members", { defaultValue: "Members" })}
+            </Badge>
+          </div>
         </div>
 
-        <Tabs defaultValue="leaderboard" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 h-14 p-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border-2">
+        <Tabs defaultValue="leaderboard" className="space-y-4 md:space-y-6">
+          <TabsList className="grid w-full grid-cols-3 h-11 sm:h-12 md:h-14 p-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border-2 text-sm sm:text-base">
             <TabsTrigger value="leaderboard" className="flex items-center gap-2 rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:to-orange-500 data-[state=active]:text-white transition-all">
               <Trophy className="h-4 w-4" />
               {t("teamPage.tabs.leaderboard", { defaultValue: "Leaderboard" })}
@@ -475,10 +494,10 @@ const Team = () => {
           </TabsList>
 
           {/* Leaderboard Tab */}
-          <TabsContent value="leaderboard" className="space-y-4 animate-fade-in">
-            <Card className="border-0 shadow-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20">
-              <CardHeader className="border-b border-white/20 bg-gradient-to-br from-amber-50/80 to-orange-50/80 dark:from-amber-950/30 dark:to-orange-950/30 backdrop-blur-sm">
-                <CardTitle className="flex items-center gap-3 text-2xl">
+          <TabsContent value="leaderboard" className="space-y-3 md:space-y-4 animate-fade-in">
+            <Card className="border-0 shadow-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20 rounded-xl md:rounded-2xl">
+              <CardHeader className="border-b border-white/20 bg-gradient-to-br from-amber-50/80 to-orange-50/80 dark:from-amber-950/30 dark:to-orange-950/30 backdrop-blur-sm rounded-t-xl md:rounded-t-2xl">
+                <CardTitle className="flex items-center gap-3 text-lg sm:text-2xl">
                   <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg">
                     <Trophy className="h-6 w-6 text-white" />
                   </div>
@@ -487,7 +506,7 @@ const Team = () => {
                   </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-6 space-y-4">
+              <CardContent className="pt-4 space-y-3 md:pt-6 md:space-y-4">
                 {teamMembers.length === 0 ? (
                   <div className="py-16 text-center">
                     <Trophy className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-20" />
@@ -499,10 +518,10 @@ const Team = () => {
                   teamMembers.map((member, index) => (
                     <div
                       key={member.id}
-                      className="flex items-center gap-4 p-5 rounded-2xl border-2 hover:border-primary/50 hover:shadow-xl transition-all duration-300 bg-gradient-to-r from-white to-slate-50 dark:from-slate-800 dark:to-slate-900 animate-slide-in"
+                      className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 p-3 sm:p-5 rounded-xl sm:rounded-2xl border-2 hover:border-primary/50 hover:shadow-xl transition-all duration-300 bg-gradient-to-r from-white to-slate-50 dark:from-slate-800 dark:to-slate-900 animate-slide-in"
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
-                      <div className="flex items-center gap-3 flex-1">
+                      <div className="flex items-center gap-3 flex-1 w-full">
                         <div className="relative">
                           {index === 0 && (
                             <Crown className="absolute -top-2 -right-2 h-5 w-5 text-amber-500" />
@@ -513,40 +532,41 @@ const Team = () => {
                           {index === 2 && (
                             <Star className="absolute -top-2 -right-2 h-5 w-5 text-amber-700" />
                           )}
-                          <div className="text-2xl font-bold text-slate-400 w-8 text-center">
+                          <div className="text-lg sm:text-2xl font-bold text-slate-400 w-8 text-center">
                             #{index + 1}
                           </div>
                         </div>
 
-                        <Avatar className="h-12 w-12">
+                        <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
                           <AvatarImage src={member.avatar_url || undefined} />
                           <AvatarFallback>
                             {member.first_name[0]}{member.last_name[0]}
                           </AvatarFallback>
                         </Avatar>
 
-                        <div className="flex-1">
-                          <div className="font-semibold text-lg">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-base sm:text-lg truncate">
                             {member.first_name} {member.last_name}
                           </div>
-                          <div className="text-sm text-muted-foreground">{member.position}</div>
+                          <div className="text-xs sm:text-sm text-muted-foreground truncate">{member.position}</div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-4">
-                        <div className="text-center">
-                          <div className="text-sm text-muted-foreground">Completed</div>
-                          <div className="text-xl font-bold text-green-600">
+                      {/* Stats row, always visible, spaced for mobile */}
+                      <div className="flex flex-row justify-between w-full sm:w-auto items-center gap-2 sm:gap-4 mt-2 sm:mt-0">
+                        <div className="flex flex-col items-center flex-1">
+                          <div className="text-xs sm:text-sm text-muted-foreground">Completed</div>
+                          <div className="text-lg sm:text-xl font-bold text-green-600">
                             {member.completed_tasks}
                           </div>
                         </div>
-                        <div className="text-center">
-                          <div className="text-sm text-muted-foreground">Total</div>
-                          <div className="text-xl font-bold">{member.total_tasks}</div>
+                        <div className="flex flex-col items-center flex-1">
+                          <div className="text-xs sm:text-sm text-muted-foreground">Total</div>
+                          <div className="text-lg sm:text-xl font-bold">{member.total_tasks}</div>
                         </div>
-                        <div className="text-center min-w-[80px]">
-                          <div className="text-sm text-muted-foreground">Rate</div>
-                          <div className="text-xl font-bold text-primary">
+                        <div className="flex flex-col items-center flex-1 min-w-[60px] sm:min-w-[80px]">
+                          <div className="text-xs sm:text-sm text-muted-foreground">Rate</div>
+                          <div className="text-lg sm:text-xl font-bold text-primary">
                             {Math.round(member.completion_rate)}%
                           </div>
                         </div>
@@ -571,9 +591,11 @@ const Team = () => {
                       {t("teamPage.chat.sectionTitle", { defaultValue: "Team Chat" })}
                     </span>
                   </CardTitle>
-                  <Badge variant="secondary" className="flex items-center gap-1.5 px-3 py-1">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span className="text-sm">{teamMembers.length} {teamMembers.length === 1 ? 'member' : 'members'} online</span>
+                  <Badge variant="secondary" className="flex items-center gap-2 px-4 py-1.5 bg-blue-400/90 text-white font-semibold rounded-full shadow-md">
+                    <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse mr-1"></div>
+                    <span className="text-sm font-bold">
+                      {teamMembers.length} {teamMembers.length === 1 ? t('teamPage.chat.oneOnline', { defaultValue: 'member online' }) : t('teamPage.chat.manyOnline', { count: teamMembers.length, defaultValue: 'members online' })}
+                    </span>
                   </Badge>
                 </div>
               </CardHeader>

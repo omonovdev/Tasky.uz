@@ -40,3 +40,32 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Notification badge uchun rang o'zgaradigan animatsiya */
+.notification-badge.active {
+  background: radial-gradient(circle at 60% 40%, #ff1a1a 80%, #ff6666 100%);
+  color: #fff;
+  font-weight: bold;
+  box-shadow: 0 0 20px 8px #ff1a1a, 0 0 40px 16px #fff;
+  animation: pulse-glow-color 0.5s infinite;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  font-size: 14px;
+  transition: box-shadow 0.2s, background 0.2s;
+}
+@keyframes pulse-glow-color {
+  0% { background: radial-gradient(circle at 60% 40%, #ff1a1a 80%, #ff6666 100%); }
+  25% { background: radial-gradient(circle at 60% 40%, #ff4d4d 80%, #ff1a1a 100%); }
+  50% { background: radial-gradient(circle at 60% 40%, #ff6666 80%, #ff1a1a 100%); }
+  75% { background: radial-gradient(circle at 60% 40%, #ff1a1a 80%, #ff4d4d 100%); }
+  100% { background: radial-gradient(circle at 60% 40%, #ff1a1a 80%, #ff6666 100%); }
+}
+
+/* Sidebar active menu uchun qizil rang va animatsiya (force override) */
+.sidebar-menu-button.bg-sidebar-accent {
+  background: linear-gradient(90deg, #ef4444 60%, #f87171 100%) !important;
+  color: #fff !important;
+  border-radius: 9999px;
+  box-shadow: 0 0 10px 2px #ef4444, 0 0 20px 4px #fff;
+  animation: pulse-glow 1s infinite;
+}

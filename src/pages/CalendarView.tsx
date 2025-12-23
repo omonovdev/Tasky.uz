@@ -180,19 +180,19 @@ const CalendarView = () => {
       <WinterBackground />
       <div className="container max-w-6xl mx-auto p-6 space-y-6 relative z-10">
         {/* Header with gradient background */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600/90 via-purple-600/90 to-pink-600/90 backdrop-blur-xl p-8 shadow-2xl ring-1 ring-white/20">
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600/90 via-purple-600/90 to-pink-600/90 backdrop-blur-xl p-6 sm:p-8 shadow-2xl ring-1 ring-white/20">
           <div className="absolute inset-0 bg-grid-white/10"></div>
-          <div className="relative flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-0">
+            <div className="flex items-center gap-3 sm:gap-4">
               <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl shadow-lg">
                 <CalendarIcon className="w-8 h-8 text-white" />
               </div>
               <div>
-                <h1 className="text-4xl font-bold text-white mb-1 drop-shadow-lg">{t("calendarPage.title")}</h1>
-                <p className="text-white/90 text-lg">{t("calendarPage.subtitle")}</p>
+                <h1 className="text-2xl sm:text-4xl font-bold text-white mb-1 drop-shadow-lg">{t("calendarPage.title")}</h1>
+                <p className="text-white/90 text-base sm:text-lg">{t("calendarPage.subtitle")}</p>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 mt-4 sm:mt-0 w-full sm:w-auto justify-center">
               <Button
                 variant={viewMode === "month" ? "secondary" : "ghost"}
                 size="sm"
@@ -201,7 +201,7 @@ const CalendarView = () => {
                   viewMode === "month" 
                     ? "bg-white text-purple-600 hover:bg-white/90 shadow-lg" 
                     : "bg-white/20 text-white hover:bg-white/30 backdrop-blur-sm"
-                }`}
+                } w-full sm:w-auto`}
               >
                 {t("calendarPage.month")}
               </Button>
@@ -213,7 +213,7 @@ const CalendarView = () => {
                   viewMode === "week" 
                     ? "bg-white text-purple-600 hover:bg-white/90 shadow-lg" 
                     : "bg-white/20 text-white hover:bg-white/30 backdrop-blur-sm"
-                }`}
+                } w-full sm:w-auto`}
               >
                 {t("calendarPage.week")}
               </Button>
@@ -225,7 +225,7 @@ const CalendarView = () => {
                   viewMode === "day" 
                     ? "bg-white text-purple-600 hover:bg-white/90 shadow-lg" 
                     : "bg-white/20 text-white hover:bg-white/30 backdrop-blur-sm"
-                }`}
+                } w-full sm:w-auto`}
               >
                 {t("calendarPage.day")}
               </Button>
@@ -234,7 +234,7 @@ const CalendarView = () => {
         </div>
 
         {/* Filter buttons */}
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap justify-center sm:justify-start">
           <Button
             variant={filterMode === "all" ? "default" : "outline"}
             onClick={() => setFilterMode("all")}

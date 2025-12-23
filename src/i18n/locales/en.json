@@ -177,8 +177,7 @@
     },
     "editMessage": "Edit Message",
       "editIdea": "Edit Idea",
-      "loading": "Loading team...",
-      "noOrganization": "No organization selected. Please select or create an organization first."
+      "loading": "Loading team..."
     },
   "team": {
     "leaderboard": "Team Leaderboard",

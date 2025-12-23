@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { authJwt } from "@/lib/auth";
+import { onNotification, offNotification } from "@/lib/socket";
 
 interface NotificationContextType {
   unreadCount: number;
@@ -17,7 +18,6 @@ const NotificationContext = createContext<NotificationContextType>({
 export const NotificationProvider = ({ children }: { children: React.ReactNode }) => {
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // 🔁 Fetch unread count (faqat foydalanuvchiga tayinlangan tasklar)
   const refreshUnread = async () => {
     try {
       const userId = authJwt.getUserId();
@@ -61,7 +61,23 @@ export const NotificationProvider = ({ children }: { children: React.ReactNode }
 
     const onFocus = () => refreshUnread();
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+
+    // Real-time notification listener
+    const handleNotification = (notification: any) => {
+      // Brauzer notification (push) ham chiqarish mumkin
+      if (window.Notification && Notification.permission === "granted") {
+        new Notification("Yangi xabar", {
+          body: notification.message || "Yangi notification keldi!",
+        });
+      }
+      // Badge va UI yangilash
+      refreshUnread();
+    };
+    onNotification(handleNotification);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      offNotification(handleNotification);
+    };
   }, []);
 
   return (

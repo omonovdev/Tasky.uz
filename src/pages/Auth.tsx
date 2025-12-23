@@ -122,6 +122,24 @@ const Auth = () => {
       let message = err.message || "Login failed";
       const lower = message.toLowerCase();
 
+      // Tarmoq yoki fetch xatolari uchun register rejimiga o'tmasin
+      if (
+        lower.includes("failed to fetch") ||
+        lower.includes("networkerror") ||
+        lower.includes("network error") ||
+        message.includes("<html") ||
+        message.includes("502") ||
+        message.includes("bad gateway")
+      ) {
+        message = "Server bilan bog'lanib bo'lmadi. Iltimos, keyinroq urinib ko'ring.";
+        toast({
+          title: "Login Failed",
+          description: message,
+          variant: "destructive"
+        });
+        return;
+      }
+
       if (lower.includes("user not found") || lower.includes("not registered")) {
         setIsRegister(true);
         toast({

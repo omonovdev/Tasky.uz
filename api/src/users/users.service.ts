@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import { UsersGateway } from './users.gateway';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -34,7 +35,8 @@ export class UsersService {
     private readonly profiles: Repository<Profile>,
     @InjectRepository(UserRole)
     private readonly roles: Repository<UserRole>,
-  ) {}
+    private readonly usersGateway: UsersGateway,
+  ) { }
 
   async getById(id: string) {
     const user = await this.profiles.findOne({ where: { id } });
@@ -54,7 +56,10 @@ export class UsersService {
     if ((dto as any).avatarUrl !== undefined) {
       (user as any).avatarUrl = (dto as any).avatarUrl;
     }
-    return this.profiles.save(user);
+    const saved = await this.profiles.save(user);
+    // Real-time event: profil yangilandi
+    this.usersGateway.emitProfileUpdated(id, saved);
+    return saved;
   }
 
   async setRole(userId: string, dto: SetRoleDto) {

@@ -1,3 +1,4 @@
+
 import {
   Injectable,
   NotFoundException,
@@ -28,6 +29,7 @@ import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { InviteDto } from './dto/invite.dto';
 import { AcceptAgreementDto } from './dto/accept-agreement.dto';
 import { UpdateMemberPositionDto } from './dto/update-member-position.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class OrganizationsService {
@@ -64,7 +66,8 @@ export class OrganizationsService {
     private readonly taskSubgroupAssignments: Repository<TaskSubgroupAssignment>,
     @InjectRepository(Profile)
     private readonly profiles: Repository<Profile>,
-  ) {}
+    private readonly notifications: NotificationsService,
+  ) { }
 
   async create(userId: string, dto: CreateOrganizationDto) {
     const org = this.orgs.create({
@@ -97,7 +100,11 @@ export class OrganizationsService {
     });
     return memberships.map((m) => m.organization);
   }
-
+  async getMyRoleForOrganization(orgId: string, userId: string) {
+    const member = await this.members.findOne({ where: { organizationId: orgId, userId } });
+    if (!member) return null;
+    return member.position;
+  }
   async membershipsForUser(userId: string) {
     return this.members.find({
       where: { userId },
@@ -189,7 +196,15 @@ export class OrganizationsService {
       existing.contractDuration = dto.contractDuration ?? null;
       existing.acceptedAt = null;
       existing.declinedAt = null;
-      return this.invites.save(existing);
+      const saved = await this.invites.save(existing);
+      // Real-time notification
+      this.notifications.emitToUser(dto.employeeId, {
+        type: 'invitation',
+        organizationId: orgId,
+        message: dto.invitationMessage ?? '',
+        createdAt: new Date(),
+      });
+      return saved;
     }
 
     const invite = this.invites.create({
@@ -199,7 +214,15 @@ export class OrganizationsService {
       contractDuration: dto.contractDuration ?? null,
       status: 'pending',
     });
-    return this.invites.save(invite);
+    const saved = await this.invites.save(invite);
+    // Real-time notification
+    this.notifications.emitToUser(dto.employeeId, {
+      type: 'invitation',
+      organizationId: orgId,
+      message: dto.invitationMessage ?? '',
+      createdAt: new Date(),
+    });
+    return saved;
   }
 
   async acceptInvitation(userId: string, invitationId: string) {

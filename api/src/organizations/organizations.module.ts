@@ -20,6 +20,7 @@ import {
 } from '../entities';
 import { OrganizationsService } from './organizations.service';
 import { OrganizationsController } from './organizations.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -41,9 +42,10 @@ import { OrganizationsController } from './organizations.controller';
       TaskAttachment,
       TaskSubgroupAssignment,
     ]),
+    NotificationsModule,
   ],
   providers: [OrganizationsService],
   controllers: [OrganizationsController],
   exports: [OrganizationsService],
 })
-export class OrganizationsModule {}
+export class OrganizationsModule { }

@@ -346,13 +346,13 @@ const Notifications = () => {
       <WinterBackground />
       <div className="container max-w-5xl mx-auto p-6 space-y-6 relative z-10">
         {/* Header Section */}
-        <div className="flex items-start justify-between gap-4 animate-fade-in">
-          <div>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 animate-fade-in">
+          <div className="w-full">
             <div className="flex items-center gap-3 mb-2">
               <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-primary/70 shadow-lg">
                 <Bell className="h-6 w-6 text-white" />
               </div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
+              <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
                 {t("notificationsPage.title")}
               </h1>
             </div>
@@ -360,20 +360,10 @@ const Notifications = () => {
               {t("notificationsPage.subtitle")}
             </p>
           </div>
-          <Button 
-            onClick={markAllAsRead} 
-            variant="outline" 
-            size="lg"
-            className="shrink-0 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-200"
-            disabled={notifications.filter(n => !n.read).length === 0}
-          >
-            <CheckCheck className="mr-2 h-4 w-4" />
-            {t("notificationsPage.markAllRead")}
-          </Button>
         </div>
 
         {/* Filter Tabs */}
-        <div className="flex gap-2 p-2 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md ring-1 ring-white/20 rounded-2xl w-fit animate-fade-in" style={{ animationDelay: "100ms" }}>
+        <div className="flex flex-wrap items-center gap-2 p-2 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md ring-1 ring-white/20 rounded-2xl w-fit animate-fade-in" style={{ animationDelay: "100ms" }}>
           <Button
             variant={filter === "all" ? "default" : "ghost"}
             size="sm"
@@ -405,6 +395,18 @@ const Notifications = () => {
                 {notifications.filter(n => !n.read).length}
               </Badge>
             )}
+          </Button>
+          {/* Mark All Read button, styled and positioned to the right of filter tabs */}
+          <Button
+            onClick={markAllAsRead}
+            variant="outline"
+            size="sm"
+            className="ml-auto px-4 py-2 rounded-xl border-primary text-primary font-semibold flex items-center gap-2 shadow-sm hover:bg-primary/10 transition-all duration-200"
+            disabled={notifications.filter(n => !n.read).length === 0}
+            style={{ minWidth: 0 }}
+          >
+            <CheckCheck className="h-4 w-4" />
+            <span className="text-sm">{t("notificationsPage.markAllRead")}</span>
           </Button>
         </div>
 
