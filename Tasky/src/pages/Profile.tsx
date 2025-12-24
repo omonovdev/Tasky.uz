@@ -460,16 +460,16 @@ const Profile = () => {
                   </AvatarFallback>
                 </Avatar>
                 
-                <label 
-                  htmlFor="avatar-upload" 
+                <label
+                  htmlFor="avatar-upload"
                   className={cn(
-                    "absolute bottom-2 right-2 p-1.5 rounded-full cursor-pointer transition-all duration-300",
+                    "absolute bottom-2 right-2 p-2.5 sm:p-2 rounded-full cursor-pointer transition-all duration-300 min-w-[44px] min-h-[44px] flex items-center justify-center",
                     "bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700",
                     "hover:bg-primary hover:border-primary hover:scale-110 shadow-lg",
                     "group/btn"
                   )}
                 >
-                  <Camera className="h-3 w-3 text-slate-600 dark:text-slate-400 group-hover/btn:text-white transition-colors" />
+                  <Camera className="h-4 w-4 sm:h-3 sm:w-3 text-slate-600 dark:text-slate-400 group-hover/btn:text-white transition-colors" />
                   <input
                     id="avatar-upload"
                     type="file"

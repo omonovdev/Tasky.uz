@@ -41,6 +41,8 @@ export const initializeSocket = (): Socket => {
 
   socket.on('connect_error', (error) => {
     console.error('Socket connection error:', error.message);
+    console.error('Error details:', error);
+    console.error('WebSocket URL:', WS_URL);
   });
 
   return socket;

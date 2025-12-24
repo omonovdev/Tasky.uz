@@ -19,7 +19,12 @@ interface SocketWithAuth extends Socket {
   userId?: string;
 }
 
-@WebSocketGateway({ cors: true })
+@WebSocketGateway({
+  cors: {
+    origin: ['https://tasky.uz', 'http://localhost:5173', 'http://localhost:4173'],
+    credentials: true
+  }
+})
 export class ChatGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   constructor(

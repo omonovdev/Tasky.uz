@@ -178,7 +178,7 @@ const CalendarView = () => {
   return (
     <div className="min-h-screen max-h-screen overflow-y-auto pb-24 relative">
       <WinterBackground />
-      <div className="container max-w-6xl mx-auto p-6 space-y-6 relative z-10">
+      <div className="container max-w-6xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6 relative z-10">
         {/* Header with gradient background */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600/90 via-purple-600/90 to-pink-600/90 backdrop-blur-xl p-6 sm:p-8 shadow-2xl ring-1 ring-white/20">
           <div className="absolute inset-0 bg-grid-white/10"></div>

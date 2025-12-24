@@ -15,10 +15,22 @@ async function bootstrap() {
     .map((v) => v.trim())
     .filter(Boolean);
 
+  // Combine environment origins with default production/development origins
+  const allowedOrigins = [
+    'https://tasky.uz',
+    'http://localhost:5173',
+    'http://localhost:4173',
+    'http://localhost:8080',
+    'http://localhost:8081',
+    ...clientOrigins,
+  ];
+
   app.setGlobalPrefix('api');
   app.enableCors({
-    origin: clientOrigins.length > 0 ? clientOrigins : true,
+    origin: allowedOrigins,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
   app.useGlobalPipes(

@@ -297,11 +297,11 @@ const Tasks = () => {
   return (
     <div className="min-h-screen max-h-screen overflow-y-auto pb-20 relative">
       <WinterBackground />
-      <div className="container max-w-2xl mx-auto p-4 space-y-6 relative z-10">
+      <div className="container max-w-2xl mx-auto px-4 py-4 md:p-4 space-y-4 md:space-y-6 relative z-10">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <BackButton to="/" />
-            <h1 className="text-3xl font-bold">{t("tasks.myTasks")}</h1>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">{t("tasks.myTasks")}</h1>
           </div>
           <Badge variant="outline">{t("tasksPage.totalCount", { count: tasks.length })}</Badge>
         </div>
@@ -309,15 +309,15 @@ const Tasks = () => {
         {/* Section Headers */}
         <div className="grid grid-cols-2 gap-4">
           <Card className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-0 ring-1 ring-primary/30 shadow-lg">
-            <CardContent className="pt-6 text-center">
-              <h2 className="text-2xl font-bold text-primary">{inProgressTasks.length}</h2>
-              <p className="text-sm text-muted-foreground">{t("tasksPage.toBeCompleted")}</p>
+            <CardContent className="pt-4 sm:pt-6 text-center">
+              <h2 className="text-xl sm:text-2xl font-bold text-primary">{inProgressTasks.length}</h2>
+              <p className="text-xs sm:text-sm text-muted-foreground">{t("tasksPage.toBeCompleted")}</p>
             </CardContent>
           </Card>
           <Card className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-0 ring-1 ring-success/30 shadow-lg">
-            <CardContent className="pt-6 text-center">
-              <h2 className="text-2xl font-bold text-success">{completedTasks.length}</h2>
-              <p className="text-sm text-muted-foreground">{t("tasksPage.completed")}</p>
+            <CardContent className="pt-4 sm:pt-6 text-center">
+              <h2 className="text-xl sm:text-2xl font-bold text-success">{completedTasks.length}</h2>
+              <p className="text-xs sm:text-sm text-muted-foreground">{t("tasksPage.completed")}</p>
             </CardContent>
           </Card>
         </div>

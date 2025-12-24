@@ -298,7 +298,7 @@ export default function OrganizationDetail() {
   return (
     <div className="min-h-screen pb-20 max-h-screen overflow-y-auto relative">
       <WinterBackground />
-      <div className="container mx-auto p-6 pb-24 space-y-6 relative z-10">
+      <div className="container mx-auto px-4 md:px-6 py-4 md:py-6 pb-24 space-y-4 md:space-y-6 relative z-10">
         <BackButton />
         
         {/* Hero Section with Organization Info */}
@@ -306,7 +306,7 @@ export default function OrganizationDetail() {
           <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
           <div className="absolute bottom-0 left-0 w-48 h-48 bg-accent/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
           
-          <div className="relative p-8">
+          <div className="relative p-4 md:p-8">
             <div className="flex flex-col md:flex-row gap-6 items-start">
               {/* ✨ ENHANCED: Organization Photo */}
               <div className="relative group flex-shrink-0">
