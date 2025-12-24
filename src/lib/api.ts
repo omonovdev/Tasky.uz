@@ -45,7 +45,17 @@ const apiFetch = async <T>(
       throw new Error('Session expired. Please login again.');
     }
   }
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const errorText = await res.text();
+    let errorMessage = errorText;
+    try {
+      const errorData = JSON.parse(errorText);
+      errorMessage = errorData.message || errorData.error || errorText;
+    } catch {
+      // Use errorText as is if not JSON
+    }
+    throw new Error(`${res.status}: ${errorMessage}`);
+  }
   return isJsonResponse(res) ? await res.json() : ((await res.text()) as any);
 };
 import { authStorage, type AuthTokens } from './auth';
