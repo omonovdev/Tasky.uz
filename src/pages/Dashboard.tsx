@@ -221,7 +221,7 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen max-h-screen overflow-y-auto pb-24 relative">
       <WinterBackground />
-      <div className="container mx-auto p-6 space-y-6 relative z-10">
+      <div className="container mx-auto px-4 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6 relative z-10">
       {/* Welcome Animation Overlay - Only shown on first visit */}
       {showWelcome && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm animate-out fade-out duration-1000 delay-2000">
@@ -248,7 +248,7 @@ const Dashboard = () => {
           <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
           <div className="absolute bottom-0 left-0 w-48 h-48 bg-accent/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
           
-          <div className="relative p-8">
+          <div className="relative p-4 md:p-8">
             <div className="flex flex-col md:flex-row gap-6 items-start">
               <div className="relative group">
                 {organization.photo_url ? (
@@ -270,11 +270,11 @@ const Dashboard = () => {
               
               <div className="flex-1 space-y-3">
                 <div>
-                  <h1 className="text-4xl font-bold bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+                  <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent break-words">
                     {organization.name}
                   </h1>
                   {organization.subheadline && (
-                    <p className="text-xl text-muted-foreground mt-1">{organization.subheadline}</p>
+                    <p className="text-base sm:text-lg md:text-xl text-muted-foreground mt-1">{organization.subheadline}</p>
                   )}
                 </div>
                 
@@ -307,11 +307,11 @@ const Dashboard = () => {
       {/* Greeting and Quick Note */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-in fade-in slide-in-from-top-5 duration-700 delay-100">
         <div>
-          <h2 className="text-3xl font-bold flex items-center gap-3">
-            {greeting}, {userName}! 
+          <h2 className="text-2xl sm:text-3xl font-bold flex items-center gap-3">
+            {greeting}, {userName}!
             <span className="inline-block animate-bounce">👋</span>
           </h2>
-          <p className="text-muted-foreground text-lg mt-1">{t("dashboardExtended.heroSubtitle")}</p>
+          <p className="text-muted-foreground text-sm sm:text-base md:text-lg mt-1">{t("dashboardExtended.heroSubtitle")}</p>
         </div>
         
         {organization && (

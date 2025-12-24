@@ -132,7 +132,11 @@ export class AuthService {
     return nodemailer.createTransport({
       host,
       port,
+      secure: false, // true for 465, false for other ports
       auth: { user, pass },
+      tls: {
+        rejectUnauthorized: false, // Allow self-signed certs in dev
+      },
     });
   }
 
@@ -154,17 +158,35 @@ export class AuthService {
       }),
     );
 
+    // DEVELOPMENT: Log the token to console
+    console.log('\n========================================');
+    console.log('🔑 PASSWORD RESET CODE GENERATED');
+    console.log('========================================');
+    console.log(`Email: ${user.email}`);
+    console.log(`Code: ${token}`);
+    console.log(`Expires: ${expiresAt.toLocaleString()}`);
+    console.log('========================================\n');
+
     const transporter = this.transporter();
     const from = this.config.get<string>('SMTP_FROM', 'no-reply@tasky.uz');
 
     if (transporter) {
-      await transporter.sendMail({
-        from,
-        to: user.email,
-        subject: 'Tasky Password Reset Code',
-        text: `Your Tasky reset code: ${token}. It expires in 30 minutes.`,
-        html: `<p>Your Tasky reset code:</p><p><strong style="font-size:20px;">${token}</strong></p><p>This code expires in 30 minutes.</p>`,
-      });
+      try {
+        await transporter.sendMail({
+          from,
+          to: user.email,
+          subject: 'Tasky Password Reset Code',
+          text: `Your Tasky reset code: ${token}. It expires in 30 minutes.`,
+          html: `<p>Your Tasky reset code:</p><p><strong style="font-size:20px;">${token}</strong></p><p>This code expires in 30 minutes.</p>`,
+        });
+        console.log(`Password reset email sent to ${user.email}`);
+      } catch (emailError) {
+        console.error('Failed to send password reset email:', emailError.message);
+        // Don't throw - we still want to return success so user can use the token
+        // The token is saved in DB, so it can be used even if email fails
+      }
+    } else {
+      console.warn('SMTP not configured, password reset token generated but email not sent');
     }
     return { success: true };
   }

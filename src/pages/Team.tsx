@@ -580,7 +580,7 @@ const Team = () => {
 
           {/* Chat Tab */}
           <TabsContent value="chat" className="space-y-4 animate-fade-in">
-            <Card className="h-[650px] flex flex-col border-0 shadow-2xl overflow-hidden bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20">
+            <Card className="h-[500px] sm:h-[600px] md:h-[650px] flex flex-col border-0 shadow-2xl overflow-hidden bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl ring-1 ring-white/20">
               <CardHeader className="border-b border-white/20 bg-gradient-to-br from-blue-50/80 to-indigo-50/80 dark:from-blue-950/30 dark:to-indigo-950/30 backdrop-blur-sm">
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-3 text-2xl">
@@ -622,7 +622,7 @@ const Team = () => {
                           </AvatarFallback>
                         </Avatar>
 
-                        <div className="flex-1 max-w-[80%]">
+                        <div className="flex-1 max-w-[90%] sm:max-w-[80%]">
                           <div className="flex items-baseline gap-2 mb-1">
                             <span className="font-semibold text-sm text-slate-900 dark:text-white">{senderName}</span>
                             <span className="text-xs text-muted-foreground">
@@ -651,7 +651,7 @@ const Team = () => {
                                     <button
                                       key={emoji}
                                       onClick={() => addReaction(msg.id, emoji)}
-                                      className="hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg p-2 text-xl transition-all hover:scale-125"
+                                      className="hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg p-3 text-xl transition-all hover:scale-125 min-w-[44px] min-h-[44px] flex items-center justify-center"
                                     >
                                       {emoji}
                                     </button>

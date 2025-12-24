@@ -133,7 +133,7 @@ const ForgotPassword = () => {
           </CardTitle>
           <CardDescription className="text-center">
             {step === "email" && "Enter your email to receive a verification code"}
-            {step === "code" && "Enter the 4-digit code sent to your email"}
+            {step === "code" && "Enter the 6-digit code sent to your email"}
             {step === "password" && "Create a new password for your account"}
           </CardDescription>
         </CardHeader>
