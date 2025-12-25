@@ -20,6 +20,7 @@ import { RequestResetDto } from './dto/request-reset.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifyPasswordDto } from './dto/verify-password.dto';
+import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 
@@ -35,7 +36,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 requests per minute
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) 
   async login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
   }
@@ -46,9 +47,15 @@ export class AuthController {
   }
 
   @Post('request-reset')
-  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 requests per 5 minutes
+  @Throttle({ default: { limit: 3, ttl: 300000 } }) 
   async requestReset(@Body() dto: RequestResetDto) {
     return this.auth.requestPasswordReset(dto);
+  }
+
+  @Post('verify-reset-code')
+  @HttpCode(HttpStatus.OK)
+  async verifyResetCode(@Body() dto: VerifyResetCodeDto) {
+    return this.auth.verifyResetCode(dto);
   }
 
   @Post('reset-password')
@@ -74,17 +81,14 @@ export class AuthController {
   @Get('google')
   @UseGuards(AuthGuard('google'))
   async googleAuth() {
-    // Initiates the Google OAuth flow
   }
 
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleAuthRedirect(@Req() req: any, @Res() res: Response) {
     const result = await this.auth.googleLogin(req.user);
-    // Redirect to frontend with tokens
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
     const normalizedFrontendUrl = frontendUrl.replace(/\/+$/, '');
-    // Frontend uses HashRouter, so callback route must be under `/#/...`
     const redirectUrl = `${normalizedFrontendUrl}/#/auth/callback?accessToken=${encodeURIComponent(
       result.accessToken,
     )}&refreshToken=${encodeURIComponent(result.refreshToken)}`;

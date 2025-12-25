@@ -48,7 +48,7 @@ const ForgotPassword = () => {
 
   const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (code.length !== 6) {
       toast({
         title: "Invalid code",
@@ -58,7 +58,26 @@ const ForgotPassword = () => {
       return;
     }
 
-    setStep("password");
+    setLoading(true);
+
+    try {
+      await api.auth.verifyResetCode({ token: code });
+
+      toast({
+        title: "Code verified!",
+        description: "Please enter your new password",
+      });
+
+      setStep("password");
+    } catch (error: any) {
+      toast({
+        title: "Invalid code",
+        description: error.message || "The code you entered is incorrect or expired",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleResetPassword = async (e: React.FormEvent) => {
@@ -178,8 +197,8 @@ const ForgotPassword = () => {
                   </InputOTP>
                 </div>
               </div>
-              <Button type="submit" className="w-full">
-                Verify Code
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Verifying..." : "Verify Code"}
               </Button>
             </form>
           )}
