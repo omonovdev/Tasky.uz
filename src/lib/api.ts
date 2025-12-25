@@ -109,6 +109,13 @@ export const api = {
         skipAuth: true,
       });
     },
+    async verifyResetCode(payload: { token: string }) {
+      return apiFetch<{ success: true; valid: true }>('/auth/verify-reset-code', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        skipAuth: true,
+      });
+    },
     async resetPassword(payload: { token: string; newPassword: string }) {
       const data = await apiFetch<ApiAuthResponse>('/auth/reset-password', {
         method: 'POST',

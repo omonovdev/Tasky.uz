@@ -17,6 +17,7 @@ import { RequestResetDto } from './dto/request-reset.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifyPasswordDto } from './dto/verify-password.dto';
+import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import * as nodemailer from 'nodemailer';
 
 interface JwtPayload {
@@ -189,6 +190,19 @@ export class AuthService {
       console.warn('SMTP not configured, password reset token generated but email not sent');
     }
     return { success: true };
+  }
+
+  async verifyResetCode(dto: VerifyResetCodeDto) {
+    const now = new Date();
+    const token = await this.resetTokens.findOne({
+      where: { token: dto.token, used: false, expiresAt: MoreThan(now) },
+    });
+
+    if (!token) {
+      throw new BadRequestException('Invalid or expired code');
+    }
+
+    return { success: true, valid: true };
   }
 
   async resetPassword(dto: ResetPasswordDto) {

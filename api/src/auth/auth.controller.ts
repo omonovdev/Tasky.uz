@@ -20,6 +20,7 @@ import { RequestResetDto } from './dto/request-reset.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifyPasswordDto } from './dto/verify-password.dto';
+import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 
@@ -49,6 +50,12 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 requests per 5 minutes
   async requestReset(@Body() dto: RequestResetDto) {
     return this.auth.requestPasswordReset(dto);
+  }
+
+  @Post('verify-reset-code')
+  @HttpCode(HttpStatus.OK)
+  async verifyResetCode(@Body() dto: VerifyResetCodeDto) {
+    return this.auth.verifyResetCode(dto);
   }
 
   @Post('reset-password')
