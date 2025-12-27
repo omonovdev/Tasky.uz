@@ -158,7 +158,7 @@ export const CreateOrganizationForm = ({ onSuccess, onCancel }: CreateOrganizati
       }
 
       toast({
-        title: t("success") || "Success",
+        title: t("common.success"),
         description: `Organization "${name.trim()}" has been created successfully.`,
       });
 

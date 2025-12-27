@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useTranslation } from "react-i18next";
 import { UserPlus } from "lucide-react";
 
 interface SendInvitationDialogProps {
@@ -13,6 +14,7 @@ interface SendInvitationDialogProps {
 }
 
 export default function SendInvitationDialog({ organizationId }: SendInvitationDialogProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [invitationMessage, setInvitationMessage] = useState("");
@@ -31,8 +33,8 @@ export default function SendInvitationDialog({ organizationId }: SendInvitationD
 
       if (!profile?.id) {
         toast({
-          title: "Error",
-          description: "User not found with this email",
+          title: t("common.error"),
+          description: t("members.userNotFound"),
           variant: "destructive",
         });
         return;
@@ -45,8 +47,8 @@ export default function SendInvitationDialog({ organizationId }: SendInvitationD
       });
 
       toast({
-        title: "Success",
-        description: "Invitation sent successfully",
+        title: t("common.success"),
+        description: t("members.invitationSent"),
       });
 
       setEmail("");
@@ -54,9 +56,9 @@ export default function SendInvitationDialog({ organizationId }: SendInvitationD
       setContractDuration("");
       setOpen(false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to send invitation";
+      const message = error instanceof Error ? error.message : t("members.failedToInvite");
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: message,
         variant: "destructive",
       });
@@ -70,49 +72,49 @@ export default function SendInvitationDialog({ organizationId }: SendInvitationD
       <DialogTrigger asChild>
         <Button variant="outline">
           <UserPlus className="w-4 h-4 mr-2" />
-          Invite Member
+          {t("members.inviteMember")}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Invite Member to Organization</DialogTitle>
+          <DialogTitle>{t("members.inviteToOrg")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email">Member Email</Label>
+            <Label htmlFor="email">{t("members.memberEmail")}</Label>
             <Input
               id="email"
               type="email"
-              placeholder="member@example.com"
+              placeholder={t("members.emailPlaceholder")}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="invitation-message">Invitation Message</Label>
+            <Label htmlFor="invitation-message">{t("members.invitationMessage")}</Label>
             <Textarea
               id="invitation-message"
-              placeholder="Write a personalized message for the invitee..."
+              placeholder={t("members.personalizedMessage")}
               value={invitationMessage}
               onChange={(e) => setInvitationMessage(e.target.value)}
               rows={4}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="contract-duration">Contract Duration</Label>
+            <Label htmlFor="contract-duration">{t("members.contractDuration")}</Label>
             <Input
               id="contract-duration"
-              placeholder="e.g., 1 year, 6 months, indefinite"
+              placeholder={t("members.contractPlaceholder")}
               value={contractDuration}
               onChange={(e) => setContractDuration(e.target.value)}
             />
           </div>
-          <Button 
-            onClick={handleSendInvitation} 
+          <Button
+            onClick={handleSendInvitation}
             disabled={loading || !email || !contractDuration}
             className="w-full"
           >
-            {loading ? "Sending..." : "Send Invitation"}
+            {loading ? t("members.sending") : t("members.sendInvitation")}
           </Button>
         </div>
       </DialogContent>

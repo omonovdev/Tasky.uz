@@ -226,6 +226,10 @@
     "cancel": "Отменить",
     "confirm": "Подтвердить",
     "save": "Сохранить изменения",
+    "changeAvatar": "Изменить аватар",
+    "selectAvatar": "Выберите фото",
+    "avatarHint": "Изображение будет автоматически обрезано до квадрата (1:1). Вы можете предварительно просмотреть, как это будет выглядеть перед сохранением.",
+    "saveAvatar": "Сохранить аватар",
     "role": {
       "employer": "Работодатель",
       "employee": "Сотрудник"
@@ -518,7 +522,9 @@
       "emailNotVerifiedDesc": "Подтвердите почту перед входом.",
       "userNotFound": "Аккаунт с таким email не найден. Сначала зарегистрируйтесь.",
       "tooManyRequests": "Слишком много попыток. Подождите пару минут и попробуйте снова."
-    }
+    },
+    "profileRequiredTitle": "Заполните профиль",
+    "profileRequiredDesc": "Доступ к основным страницам недоступен, пока вы не заполните информацию профиля."
   },
   "taskDeclineDialog": {
     "title": "Нельзя выполнить задачу",
@@ -632,10 +638,71 @@
     "save": "Сохранить",
     "delete": "Удалить",
     "edit": "Редактировать",
-    "back": "Назад"
+    "back": "Назад",
+    "unknownUser": "Неизвестный пользователь"
   },
   "organizationPage": {
     "membersButton": "Участники",
     "membersTitle": "Участники организации"
+  },
+  "members": {
+    "inviteMember": "Пригласить участника",
+    "searchPlaceholder": "Поиск по имени или email",
+    "invite": "Пригласить",
+    "noUsersFound": "Пользователи не найдены",
+    "tryDifferentSearch": "Попробуйте другое имя или email",
+    "inviteUser": "Пригласить: {{name}}",
+    "position": "Должность",
+    "customPosition": "Другая должность",
+    "enterCustomPosition": "Введите должность",
+    "invitationMessageOptional": "Сообщение приглашения (необязательно)",
+    "personalizedMessage": "Напишите персональное сообщение для приглашаемого...",
+    "sending": "Отправка...",
+    "sendInvitation": "Отправить приглашение",
+    "allMembers": "Все участники",
+    "subgroups": "Подгруппы",
+    "pending": "Ожидание",
+    "boss": "Руководитель",
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "updatePosition": "Изменить должность",
+    "fire": "Уволить",
+    "removeConfirmTitle": "Вы абсолютно уверены?",
+    "removeConfirmDesc": "Это удалит {{name}} из организации. Это действие необратимо.",
+    "removeMember": "Удалить участника",
+    "inviteToOrg": "Пригласить в организацию",
+    "memberEmail": "Email участника",
+    "emailPlaceholder": "member@example.com",
+    "invitationMessage": "Сообщение приглашения",
+    "contractDuration": "Срок контракта",
+    "contractPlaceholder": "например: 1 год, 6 месяцев, бессрочно",
+    "userNotFound": "Пользователь с таким email не найден",
+    "invitationSent": "Приглашение успешно отправлено",
+    "failedToInvite": "Не удалось отправить приглашение",
+    "selectPosition": "Пожалуйста, выберите должность",
+    "positionEmpty": "Должность не может быть пустой",
+    "positionUpdated": "Должность успешно обновлена",
+    "cannotRemoveCreator": "Невозможно удалить создателя организации",
+    "memberRemoved": "Участник успешно удален",
+    "loadMembersError": "Не удалось загрузить участников",
+    "searchError": "Ошибка поиска",
+    "positions": {
+      "ceo": "Генеральный директор",
+      "cto": "Технический директор",
+      "cfo": "Финансовый директор",
+      "cmo": "Директор по маркетингу",
+      "coo": "Операционный директор",
+      "designer": "Дизайнер",
+      "engineer": "Инженер",
+      "developer": "Разработчик",
+      "hrManager": "HR менеджер",
+      "projectManager": "Менеджер проекта",
+      "teamLead": "Тимлид",
+      "salesManager": "Менеджер по продажам",
+      "marketingManager": "Маркетинг менеджер",
+      "productManager": "Продакт менеджер",
+      "qa": "Тестировщик",
+      "other": "Другое"
+    }
   }
 }

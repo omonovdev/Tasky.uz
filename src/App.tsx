@@ -3,34 +3,42 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Routes, Route } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 
 import MainLayout from "./components/MainLayout";
-import Auth from "./pages/Auth";
-import AuthCallback from "./pages/AuthCallback";
-import Home from "./pages/Home";
-import Profile from "./pages/Profile";
-import Tasks from "./pages/Tasks";
-import Dashboard from "./pages/Dashboard";
-import Notifications from "./pages/Notifications";
-import CalendarView from "./pages/CalendarView";
-import Team from "./pages/Team";
-import Goals from "./pages/Goals";
-import Help from "./pages/Help";
-import TaskDetail from "./pages/TaskDetail";
-import ForgotPassword from "./pages/ForgotPassword";
-import OrganizationDetail from "./pages/OrganizationDetail";
-import OrganizationStats from "./pages/OrganizationStats";
-import MemberDetail from "./pages/MemberDetail";
-import NotFound from "./pages/NotFound";
-import ImageEditor from "./pages/ImageEditor";
-import AcceptInvitation from "./pages/AcceptInvitation";
-import TaskStatusDetails from "./pages/TaskStatusDetails";
-
 import InvitationAcceptDialog from "./components/InvitationAcceptDialog";
 import AgreementConsentDialog from "./components/AgreementConsentDialog";
 import TaskTimerNotification from "./components/TaskTimerNotification";
 import { initializeSocket } from "@/lib/socket";
+
+// Lazy load pages for better performance
+const Auth = lazy(() => import("./pages/Auth"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
+const Home = lazy(() => import("./pages/Home"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Tasks = lazy(() => import("./pages/Tasks"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Notifications = lazy(() => import("./pages/Notifications"));
+const CalendarView = lazy(() => import("./pages/CalendarView"));
+const Team = lazy(() => import("./pages/Team"));
+const Goals = lazy(() => import("./pages/Goals"));
+const Help = lazy(() => import("./pages/Help"));
+const TaskDetail = lazy(() => import("./pages/TaskDetail"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const OrganizationDetail = lazy(() => import("./pages/OrganizationDetail"));
+const OrganizationStats = lazy(() => import("./pages/OrganizationStats"));
+const MemberDetail = lazy(() => import("./pages/MemberDetail"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const ImageEditor = lazy(() => import("./pages/ImageEditor"));
+const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation"));
+const TaskStatusDetails = lazy(() => import("./pages/TaskStatusDetails"));
+
+// Loading component
+const PageLoader = () => (
+  <div className="flex items-center justify-center min-h-screen">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+  </div>
+);
 
 const queryClient = new QueryClient();
 
@@ -52,11 +60,12 @@ const App = () => {
           <InvitationAcceptDialog />
           <AgreementConsentDialog />
           <TaskTimerNotification />
-          <Routes>
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/accept-invitation" element={<AcceptInvitation />} />
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/accept-invitation" element={<AcceptInvitation />} />
 
             <Route
               path="/"
@@ -187,9 +196,10 @@ const App = () => {
               }
             />
 
-            <Route path="/image-editor" element={<ImageEditor />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+              <Route path="/image-editor" element={<ImageEditor />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </HashRouter>
       </TooltipProvider>
     </QueryClientProvider>

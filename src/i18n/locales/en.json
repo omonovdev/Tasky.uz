@@ -239,6 +239,10 @@
     "cancel": "Cancel",
     "confirm": "Confirm",
     "save": "Save Changes",
+    "changeAvatar": "Change Avatar",
+    "selectAvatar": "Select a photo",
+    "avatarHint": "Image will be automatically cropped to a square (1:1). You can preview how it will look before saving.",
+    "saveAvatar": "Save Avatar",
     "role": {
       "employer": "Employer",
       "employee": "Employee"
@@ -532,7 +536,9 @@
       "emailNotVerifiedDesc": "Check your email and click the verification link before logging in.",
       "userNotFound": "No account found with this email. Please register first.",
       "tooManyRequests": "Too many login attempts. Please wait a few minutes and try again."
-    }
+    },
+    "profileRequiredTitle": "Complete Your Profile",
+    "profileRequiredDesc": "Access to main pages is unavailable until you complete your profile information."
   },
   "taskDeclineDialog": {
     "title": "Cannot Complete Task",
@@ -652,10 +658,71 @@
     "save": "Save",
     "delete": "Delete",
     "edit": "Edit",
-    "back": "Back"
+    "back": "Back",
+    "unknownUser": "Unknown User"
   },
   "organizationPage": {
     "membersButton": "Members",
     "membersTitle": "Organization Members"
+  },
+  "members": {
+    "inviteMember": "Invite Member",
+    "searchPlaceholder": "Search by name or email",
+    "invite": "Invite",
+    "noUsersFound": "No users found",
+    "tryDifferentSearch": "Try searching with different name or email",
+    "inviteUser": "Invite {{name}}",
+    "position": "Position",
+    "customPosition": "Custom Position",
+    "enterCustomPosition": "Enter custom position",
+    "invitationMessageOptional": "Invitation Message (Optional)",
+    "personalizedMessage": "Write a personalized message for the invitee...",
+    "sending": "Sending...",
+    "sendInvitation": "Send Invitation",
+    "allMembers": "All Members",
+    "subgroups": "Subgroups",
+    "pending": "Pending",
+    "boss": "Boss",
+    "save": "Save",
+    "cancel": "Cancel",
+    "updatePosition": "Update Position",
+    "fire": "Fire",
+    "removeConfirmTitle": "Are you absolutely sure?",
+    "removeConfirmDesc": "This will remove {{name}} from the organization. This action cannot be undone.",
+    "removeMember": "Remove Member",
+    "inviteToOrg": "Invite Member to Organization",
+    "memberEmail": "Member Email",
+    "emailPlaceholder": "member@example.com",
+    "invitationMessage": "Invitation Message",
+    "contractDuration": "Contract Duration",
+    "contractPlaceholder": "e.g., 1 year, 6 months, indefinite",
+    "userNotFound": "User not found with this email",
+    "invitationSent": "Invitation sent successfully",
+    "failedToInvite": "Failed to send invitation",
+    "selectPosition": "Please select a position",
+    "positionEmpty": "Position cannot be empty",
+    "positionUpdated": "Position updated successfully",
+    "cannotRemoveCreator": "Cannot remove the organization creator",
+    "memberRemoved": "Member removed successfully",
+    "loadMembersError": "Failed to load members",
+    "searchError": "Search error",
+    "positions": {
+      "ceo": "CEO",
+      "cto": "CTO",
+      "cfo": "CFO",
+      "cmo": "CMO",
+      "coo": "COO",
+      "designer": "Designer",
+      "engineer": "Engineer",
+      "developer": "Developer",
+      "hrManager": "HR Manager",
+      "projectManager": "Project Manager",
+      "teamLead": "Team Lead",
+      "salesManager": "Sales Manager",
+      "marketingManager": "Marketing Manager",
+      "productManager": "Product Manager",
+      "qa": "Quality Assurance",
+      "other": "Other"
+    }
   }
 }

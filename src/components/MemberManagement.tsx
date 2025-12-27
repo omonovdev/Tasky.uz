@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useTranslation } from "react-i18next";
 import { Trash2, Users, MoreVertical, Edit3, X, UserPlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -68,6 +69,7 @@ interface MemberManagementProps {
 
 export default function MemberManagement({ organizationId, creatorId, isCreator }: MemberManagementProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [members, setMembers] = useState<Member[]>([]);
   const [pendingInvitations, setPendingInvitations] = useState<Member[]>([]);
   const [userRole, setUserRole] = useState<string>("");
@@ -136,8 +138,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     } catch (error: any) {
       console.error("Fetch members error:", error);
       toast({
-        title: "Error",
-        description: error?.message || "Failed to load members",
+        title: t("common.error"),
+        description: error?.message || t("members.loadMembersError"),
         variant: "destructive",
       });
     }
@@ -173,8 +175,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     } catch (error: any) {
       console.error("Search error:", error);
       toast({
-        title: "Search Error",
-        description: error.message || "Failed to search users",
+        title: t("members.searchError"),
+        description: error.message || t("members.searchError"),
         variant: "destructive",
       });
     } finally {
@@ -208,8 +210,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
   const handleSendInvitation = async (userId: string) => {
     if (!position.trim() && position !== "Other") {
       toast({
-        title: "Error",
-        description: "Please select a position",
+        title: t("common.error"),
+        description: t("members.selectPosition"),
         variant: "destructive",
       });
       return;
@@ -217,10 +219,10 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
 
     const finalPosition = position === "Other" ? customPosition : position;
     const validation = positionSchema.safeParse(finalPosition);
-    
+
     if (!validation.success) {
       toast({
-        title: "Validation Error",
+        title: t("common.error"),
         description: validation.error.errors[0].message,
         variant: "destructive",
       });
@@ -237,8 +239,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
       });
 
       toast({
-        title: "Success",
-        description: "Invitation sent successfully",
+        title: t("common.success"),
+        description: t("members.invitationSent"),
       });
 
       clearSearch();
@@ -246,8 +248,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     } catch (error: any) {
       console.error("Error sending invitation:", error);
       toast({
-        title: "Error",
-        description: error.message || "Failed to send invitation",
+        title: t("common.error"),
+        description: error.message || t("members.failedToInvite"),
         variant: "destructive",
       });
     } finally {
@@ -258,8 +260,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
   const handleUpdatePosition = async (memberId: string) => {
     if (!newPosition.trim()) {
       toast({
-        title: "Error",
-        description: "Position cannot be empty",
+        title: t("common.error"),
+        description: t("members.positionEmpty"),
         variant: "destructive",
       });
       return;
@@ -268,7 +270,7 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     const validation = positionSchema.safeParse(newPosition);
     if (!validation.success) {
       toast({
-        title: "Validation Error",
+        title: t("common.error"),
         description: validation.error.errors[0].message,
         variant: "destructive",
       });
@@ -279,8 +281,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
       await api.organizations.updateMemberPosition(memberId, { position: validation.data });
 
       toast({
-        title: "Success",
-        description: "Position updated successfully",
+        title: t("common.success"),
+        description: t("members.positionUpdated"),
       });
 
       setEditingMember(null);
@@ -288,7 +290,7 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
       fetchMembers();
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -300,8 +302,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
 
     if (memberToRemove.user_id === creatorId) {
       toast({
-        title: "Error",
-        description: "Cannot remove the organization creator",
+        title: t("common.error"),
+        description: t("members.cannotRemoveCreator"),
         variant: "destructive",
       });
       return;
@@ -311,15 +313,15 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
       await api.organizations.removeMember(memberToRemove.id);
 
       toast({
-        title: "Success",
-        description: "Member removed successfully",
+        title: t("common.success"),
+        description: t("members.memberRemoved"),
       });
 
       setMemberToRemove(null);
       fetchMembers();
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: t("common.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -330,8 +332,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     <>
     <Tabs defaultValue="all" className="space-y-4">
       <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="all">All Members</TabsTrigger>
-        <TabsTrigger value="subgroups">Subgroups</TabsTrigger>
+        <TabsTrigger value="all">{t("members.allMembers")}</TabsTrigger>
+        <TabsTrigger value="subgroups">{t("members.subgroups")}</TabsTrigger>
       </TabsList>
 
       <TabsContent value="all" className="space-y-4">
@@ -339,16 +341,16 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
         <Card className="p-4">
             <div className="space-y-4">
               <div className="flex gap-2">
-                <Button 
+                <Button
                   onClick={() => setShowInviteForm(!showInviteForm)}
                   variant={showInviteForm ? "default" : "outline"}
                   className="whitespace-nowrap"
                 >
                   <UserPlus className="w-4 h-4 mr-2" />
-                  Invite Member
+                  {t("members.inviteMember")}
                 </Button>
                 <Input
-                  placeholder="Search by name or email"
+                  placeholder={t("members.searchPlaceholder")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="flex-1"
@@ -377,14 +379,14 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
                             <div className="font-medium">{result.first_name} {result.last_name}</div>
                             <div className="text-sm text-muted-foreground">{result.email}</div>
                           </div>
-                          <Button 
-                            size="sm" 
+                          <Button
+                            size="sm"
                             onClick={() => {
                               setSelectedUser(result);
                               setShowInviteForm(true);
                             }}
                           >
-                            Invite
+                            {t("members.invite")}
                           </Button>
                         </div>
                       </Card>
@@ -395,8 +397,8 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
 
               {searchQuery && !searching && searchResults.length === 0 && (
                 <div className="text-center py-4 text-muted-foreground">
-                  <p>No users found</p>
-                  <p className="text-sm mt-1">Try searching with different name or email</p>
+                  <p>{t("members.noUsersFound")}</p>
+                  <p className="text-sm mt-1">{t("members.tryDifferentSearch")}</p>
                 </div>
               )}
 
@@ -404,14 +406,14 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
               {showInviteForm && selectedUser && (
                 <div className="space-y-4 border-t pt-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-semibold">Invite {selectedUser.first_name} {selectedUser.last_name}</h3>
+                    <h3 className="font-semibold">{t("members.inviteUser", { name: `${selectedUser.first_name} ${selectedUser.last_name}` })}</h3>
                     <Button variant="ghost" size="sm" onClick={clearSearch}>
                       <X className="w-4 h-4" />
                     </Button>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="position">Position</Label>
+                    <Label htmlFor="position">{t("members.position")}</Label>
                     <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 border rounded-md">
                       {SUGGESTED_POSITIONS.map((pos) => (
                         <Button
@@ -430,40 +432,40 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
                         size="sm"
                         onClick={() => setPosition("Other")}
                       >
-                        Other
+                        {t("members.positions.other")}
                       </Button>
                     </div>
                   </div>
 
                   {position === "Other" && (
                     <div>
-                      <Label htmlFor="custom-position">Custom Position</Label>
+                      <Label htmlFor="custom-position">{t("members.customPosition")}</Label>
                       <Input
                         id="custom-position"
                         value={customPosition}
                         onChange={(e) => setCustomPosition(e.target.value)}
-                        placeholder="Enter custom position"
+                        placeholder={t("members.enterCustomPosition")}
                       />
                     </div>
                   )}
 
                   <div>
-                    <Label htmlFor="invitation-message">Invitation Message (Optional)</Label>
+                    <Label htmlFor="invitation-message">{t("members.invitationMessageOptional")}</Label>
                     <Textarea
                       id="invitation-message"
                       value={invitationMessage}
                       onChange={(e) => setInvitationMessage(e.target.value)}
-                      placeholder="Write a personalized message for the invitee..."
+                      placeholder={t("members.personalizedMessage")}
                       rows={3}
                     />
                   </div>
 
-                  <Button 
+                  <Button
                     onClick={() => handleSendInvitation(selectedUser.id)}
                     disabled={loading || (!position.trim() && position !== "Other") || (position === "Other" && !customPosition.trim())}
                     className="w-full"
                   >
-                    {loading ? "Sending..." : "Send Invitation"}
+                    {loading ? t("members.sending") : t("members.sendInvitation")}
                   </Button>
                 </div>
               )}
@@ -482,7 +484,7 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
             {pendingInvitations.map((invitation) => (
               <Card key={invitation.id} className="p-4 relative">
                 <Badge className="absolute top-2 right-2" variant="outline">
-                  Pending
+                  {t("members.pending")}
                 </Badge>
                 <div className="flex items-center gap-3">
                   <Avatar>
@@ -518,7 +520,7 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
                       {member.first_name} {member.last_name}
                       {member.user_id === creatorId && (
                         <span className="ml-2 text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                          Boss
+                          {t("members.boss")}
                         </span>
                       )}
                     </div>
@@ -527,14 +529,14 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
                         <Input
                           value={newPosition}
                           onChange={(e) => setNewPosition(e.target.value)}
-                          placeholder="Enter new position"
+                          placeholder={t("members.enterCustomPosition")}
                           className="h-8"
                         />
                         <Button
                           size="sm"
                           onClick={() => handleUpdatePosition(member.id)}
                         >
-                          Save
+                          {t("members.save")}
                         </Button>
                         <Button
                           size="sm"
@@ -544,7 +546,7 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
                             setNewPosition("");
                           }}
                         >
-                          Cancel
+                          {t("members.cancel")}
                         </Button>
                       </div>
                     ) : (
@@ -568,14 +570,14 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
                           }}
                         >
                           <Edit3 className="w-4 h-4 mr-2" />
-                          Update Position
+                          {t("members.updatePosition")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setMemberToRemove(member)}
                           className="text-destructive focus:text-destructive"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
-                          Fire
+                          {t("members.fire")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -596,16 +598,15 @@ export default function MemberManagement({ organizationId, creatorId, isCreator 
     <AlertDialog open={!!memberToRemove} onOpenChange={() => setMemberToRemove(null)}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+          <AlertDialogTitle>{t("members.removeConfirmTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
-            This will remove {memberToRemove?.first_name} {memberToRemove?.last_name} from the organization.
-            This action cannot be undone.
+            {t("members.removeConfirmDesc", { name: `${memberToRemove?.first_name} ${memberToRemove?.last_name}` })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t("members.cancel")}</AlertDialogCancel>
           <AlertDialogAction onClick={handleRemoveMember} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-            Remove Member
+            {t("members.removeMember")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
